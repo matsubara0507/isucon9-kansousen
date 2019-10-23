@@ -277,7 +277,9 @@ func init() {
 	templates = template.Must(template.ParseFiles(
 		"../public/index.html",
 	))
+}
 
+func initCategories() {
 	categories := [...]Category{
 		Category{1,0,"ソファー", ""},
 		Category{2,1,"一人掛けソファー",""},
@@ -372,6 +374,7 @@ func main() {
 	defer dbx.Close()
 
 	mux := goji.NewMux()
+	initCategories()
 
 	// API
 	mux.HandleFunc(pat.Post("/initialize"), postInitialize)
