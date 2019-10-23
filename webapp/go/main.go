@@ -60,9 +60,9 @@ const (
 )
 
 var (
-	templates *template.Template
-	dbx       *sqlx.DB
-	store     sessions.Store
+	templates  *template.Template
+	dbx        *sqlx.DB
+	store      sessions.Store
 	categories []Category
 )
 
@@ -281,53 +281,53 @@ func init() {
 
 func initCategories() {
 	categories := [...]Category{
-		Category{1,0,"ソファー", ""},
-		Category{2,1,"一人掛けソファー",""},
-		Category{3,1,"二人掛けソファー",""},
-		Category{4,1,"コーナーソファー",""},
-		Category{5,1,"二段ソファー",""},
-		Category{6,1,"ソファーベッド",""},
-		Category{10,0,"家庭用チェア",""},
-		Category{11,10,"スツール",""},
-		Category{12,10,"クッションスツール",""},
-		Category{13,10,"ダイニングチェア",""},
-		Category{14,10,"リビングチェア",""},
-		Category{15,10,"カウンターチェア",""},
-		Category{20,0,"キッズチェア",""},
-		Category{21,20,"学習チェア",""},
-		Category{22,20,"ベビーソファ",""},
-		Category{23,20,"キッズハイチェア",""},
-		Category{24,20,"テーブルチェア",""},
-		Category{30,0,"オフィスチェア",""},
-		Category{31,30,"デスクチェア",""},
-		Category{32,30,"ビジネスチェア",""},
-		Category{33,30,"回転チェア",""},
-		Category{34,30,"リクライニングチェア",""},
-		Category{35,30,"投擲用椅子",""},
-		Category{40,0,"折りたたみ椅子",""},
-		Category{41,40,"パイプ椅子",""},
-		Category{42,40,"木製折りたたみ椅子",""},
-		Category{43,40,"キッチンチェア",""},
-		Category{44,40,"アウトドアチェア",""},
-		Category{45,40,"作業椅子",""},
-		Category{50,0,"ベンチ",""},
-		Category{51,50,"一人掛けベンチ",""},
-		Category{52,50,"二人掛けベンチ",""},
-		Category{53,50,"アウトドア用ベンチ",""},
-		Category{54,50,"収納付きベンチ",""},
-		Category{55,50,"背もたれ付きベンチ",""},
-		Category{56,50,"ベンチマーク",""},
-		Category{60,0,"座椅子",""},
-		Category{61,60,"和風座椅子",""},
-		Category{62,60,"高座椅子",""},
-		Category{63,60,"ゲーミング座椅子",""},
-		Category{64,60,"ロッキングチェア",""},
-		Category{65,60,"座布団",""},
-		Category{66,60,"空気椅子",""},
+		Category{1, 0, "ソファー", ""},
+		Category{2, 1, "一人掛けソファー", ""},
+		Category{3, 1, "二人掛けソファー", ""},
+		Category{4, 1, "コーナーソファー", ""},
+		Category{5, 1, "二段ソファー", ""},
+		Category{6, 1, "ソファーベッド", ""},
+		Category{10, 0, "家庭用チェア", ""},
+		Category{11, 10, "スツール", ""},
+		Category{12, 10, "クッションスツール", ""},
+		Category{13, 10, "ダイニングチェア", ""},
+		Category{14, 10, "リビングチェア", ""},
+		Category{15, 10, "カウンターチェア", ""},
+		Category{20, 0, "キッズチェア", ""},
+		Category{21, 20, "学習チェア", ""},
+		Category{22, 20, "ベビーソファ", ""},
+		Category{23, 20, "キッズハイチェア", ""},
+		Category{24, 20, "テーブルチェア", ""},
+		Category{30, 0, "オフィスチェア", ""},
+		Category{31, 30, "デスクチェア", ""},
+		Category{32, 30, "ビジネスチェア", ""},
+		Category{33, 30, "回転チェア", ""},
+		Category{34, 30, "リクライニングチェア", ""},
+		Category{35, 30, "投擲用椅子", ""},
+		Category{40, 0, "折りたたみ椅子", ""},
+		Category{41, 40, "パイプ椅子", ""},
+		Category{42, 40, "木製折りたたみ椅子", ""},
+		Category{43, 40, "キッチンチェア", ""},
+		Category{44, 40, "アウトドアチェア", ""},
+		Category{45, 40, "作業椅子", ""},
+		Category{50, 0, "ベンチ", ""},
+		Category{51, 50, "一人掛けベンチ", ""},
+		Category{52, 50, "二人掛けベンチ", ""},
+		Category{53, 50, "アウトドア用ベンチ", ""},
+		Category{54, 50, "収納付きベンチ", ""},
+		Category{55, 50, "背もたれ付きベンチ", ""},
+		Category{56, 50, "ベンチマーク", ""},
+		Category{60, 0, "座椅子", ""},
+		Category{61, 60, "和風座椅子", ""},
+		Category{62, 60, "高座椅子", ""},
+		Category{63, 60, "ゲーミング座椅子", ""},
+		Category{64, 60, "ロッキングチェア", ""},
+		Category{65, 60, "座布団", ""},
+		Category{66, 60, "空気椅子", ""},
 	}
 	for _, category := range categories {
 		if category.ParentID != 0 {
-			category.ParentCategoryName = categories[category.ParentID - 1].CategoryName
+			category.ParentCategoryName = categories[category.ParentID-1].CategoryName
 		}
 	}
 }
@@ -464,7 +464,7 @@ func getUserSimpleByID(q sqlx.Queryer, userID int64) (userSimple UserSimple, err
 
 func getCategoryByID(q sqlx.Queryer, categoryID int) (category Category, err error) {
 	if 0 < categoryID && categoryID < len(categories) {
-		return categories[categoryID - 1], nil
+		return categories[categoryID-1], nil
 	}
 	return category, fmt.Errorf("category not found: %d", categoryID)
 }
