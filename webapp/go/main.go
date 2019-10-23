@@ -277,6 +277,8 @@ func init() {
 	templates = template.Must(template.ParseFiles(
 		"../public/index.html",
 	))
+
+	categories = []Category{}
 }
 
 func initCategories() {
@@ -374,7 +376,6 @@ func main() {
 	defer dbx.Close()
 
 	mux := goji.NewMux()
-	initCategories()
 
 	// API
 	mux.HandleFunc(pat.Post("/initialize"), postInitialize)
@@ -540,6 +541,8 @@ func postInitialize(w http.ResponseWriter, r *http.Request) {
 		outputErrorMsg(w, http.StatusInternalServerError, "db error")
 		return
 	}
+
+	initCategories()
 
 	res := resInitialize{
 		// キャンペーン実施時には還元率の設定を返す。詳しくはマニュアルを参照のこと。
