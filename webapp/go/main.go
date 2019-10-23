@@ -18,7 +18,7 @@ import (
 	_ "github.com/go-sql-driver/mysql"
 	"github.com/gorilla/sessions"
 	"github.com/jmoiron/sqlx"
-	goji "goji.io"
+	"goji.io"
 	"goji.io/pat"
 	"golang.org/x/crypto/bcrypt"
 )
@@ -63,6 +63,7 @@ var (
 	templates *template.Template
 	dbx       *sqlx.DB
 	store     sessions.Store
+	categories []Category
 )
 
 type Config struct {
@@ -276,6 +277,57 @@ func init() {
 	templates = template.Must(template.ParseFiles(
 		"../public/index.html",
 	))
+
+	categories := [...]Category{
+		Category{1,0,"ソファー", ""},
+		Category{2,1,"一人掛けソファー",""},
+		Category{3,1,"二人掛けソファー",""},
+		Category{4,1,"コーナーソファー",""},
+		Category{5,1,"二段ソファー",""},
+		Category{6,1,"ソファーベッド",""},
+		Category{10,0,"家庭用チェア",""},
+		Category{11,10,"スツール",""},
+		Category{12,10,"クッションスツール",""},
+		Category{13,10,"ダイニングチェア",""},
+		Category{14,10,"リビングチェア",""},
+		Category{15,10,"カウンターチェア",""},
+		Category{20,0,"キッズチェア",""},
+		Category{21,20,"学習チェア",""},
+		Category{22,20,"ベビーソファ",""},
+		Category{23,20,"キッズハイチェア",""},
+		Category{24,20,"テーブルチェア",""},
+		Category{30,0,"オフィスチェア",""},
+		Category{31,30,"デスクチェア",""},
+		Category{32,30,"ビジネスチェア",""},
+		Category{33,30,"回転チェア",""},
+		Category{34,30,"リクライニングチェア",""},
+		Category{35,30,"投擲用椅子",""},
+		Category{40,0,"折りたたみ椅子",""},
+		Category{41,40,"パイプ椅子",""},
+		Category{42,40,"木製折りたたみ椅子",""},
+		Category{43,40,"キッチンチェア",""},
+		Category{44,40,"アウトドアチェア",""},
+		Category{45,40,"作業椅子",""},
+		Category{50,0,"ベンチ",""},
+		Category{51,50,"一人掛けベンチ",""},
+		Category{52,50,"二人掛けベンチ",""},
+		Category{53,50,"アウトドア用ベンチ",""},
+		Category{54,50,"収納付きベンチ",""},
+		Category{55,50,"背もたれ付きベンチ",""},
+		Category{56,50,"ベンチマーク",""},
+		Category{60,0,"座椅子",""},
+		Category{61,60,"和風座椅子",""},
+		Category{62,60,"高座椅子",""},
+		Category{63,60,"ゲーミング座椅子",""},
+		Category{64,60,"ロッキングチェア",""},
+		Category{65,60,"座布団",""},
+		Category{66,60,"空気椅子",""},
+	}
+	for _, category := range categories {
+		if category.ParentID != 0 {
+			category.ParentCategoryName = categories[category.ParentID - 1].CategoryName
+		}
+	}
 }
 
 func main() {
@@ -397,7 +449,7 @@ func getUser(r *http.Request) (user User, errCode int, errMsg string) {
 
 func getUserSimpleByID(q sqlx.Queryer, userID int64) (userSimple UserSimple, err error) {
 	user := User{}
-	err = sqlx.Get(q, &user, "SELECT * FROM `users` WHERE `id` = ?", userID)
+	err = sqlx.Get(q, &user, "SELECT id,account_name,num_sell_items FROM `users` WHERE `id` = ?", userID)
 	if err != nil {
 		return userSimple, err
 	}
@@ -408,15 +460,10 @@ func getUserSimpleByID(q sqlx.Queryer, userID int64) (userSimple UserSimple, err
 }
 
 func getCategoryByID(q sqlx.Queryer, categoryID int) (category Category, err error) {
-	err = sqlx.Get(q, &category, "SELECT * FROM `categories` WHERE `id` = ?", categoryID)
-	if category.ParentID != 0 {
-		parentCategory, err := getCategoryByID(q, category.ParentID)
-		if err != nil {
-			return category, err
-		}
-		category.ParentCategoryName = parentCategory.CategoryName
+	if 0 < categoryID && categoryID < len(categories) {
+		return categories[categoryID - 1], nil
 	}
-	return category, err
+	return category, fmt.Errorf("category not found: %d", categoryID)
 }
 
 func getConfigByName(name string) (string, error) {
@@ -612,12 +659,11 @@ func getNewCategoryItems(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var categoryIDs []int
-	err = dbx.Select(&categoryIDs, "SELECT id FROM `categories` WHERE parent_id=?", rootCategory.ID)
-	if err != nil {
-		log.Print(err)
-		outputErrorMsg(w, http.StatusInternalServerError, "db error")
-		return
+	categoryIDs := []int{}
+	for _, category := range categories {
+		if category.ParentID == rootCategory.ID {
+			categoryIDs = append(categoryIDs, category.ID)
+		}
 	}
 
 	query := r.URL.Query()
@@ -2151,15 +2197,6 @@ func getSettings(w http.ResponseWriter, r *http.Request) {
 	}
 
 	ress.PaymentServiceURL = getPaymentServiceURL()
-
-	categories := []Category{}
-
-	err := dbx.Select(&categories, "SELECT * FROM `categories`")
-	if err != nil {
-		log.Print(err)
-		outputErrorMsg(w, http.StatusInternalServerError, "db error")
-		return
-	}
 	ress.Categories = categories
 
 	w.Header().Set("Content-Type", "application/json;charset=utf-8")
