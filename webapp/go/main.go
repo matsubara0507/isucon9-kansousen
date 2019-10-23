@@ -376,8 +376,6 @@ func main() {
 
 	mux := goji.NewMux()
 
-	go func() { initCategories() }()
-
 	// API
 	mux.HandleFunc(pat.Post("/initialize"), postInitialize)
 	mux.HandleFunc(pat.Get("/new_items.json"), getNewItems)
@@ -512,6 +510,8 @@ func postInitialize(w http.ResponseWriter, r *http.Request) {
 		outputErrorMsg(w, http.StatusBadRequest, "json decode error")
 		return
 	}
+
+	go func() { initCategories() }()
 
 	cmd := exec.Command("../sql/init.sh")
 	cmd.Stderr = os.Stderr
