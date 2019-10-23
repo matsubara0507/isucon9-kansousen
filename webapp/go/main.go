@@ -282,51 +282,50 @@ func init() {
 }
 
 func initCategories() {
-	categories := [...]Category{
-		Category{1, 0, "ソファー", ""},
-		Category{2, 1, "一人掛けソファー", ""},
-		Category{3, 1, "二人掛けソファー", ""},
-		Category{4, 1, "コーナーソファー", ""},
-		Category{5, 1, "二段ソファー", ""},
-		Category{6, 1, "ソファーベッド", ""},
-		Category{10, 0, "家庭用チェア", ""},
-		Category{11, 10, "スツール", ""},
-		Category{12, 10, "クッションスツール", ""},
-		Category{13, 10, "ダイニングチェア", ""},
-		Category{14, 10, "リビングチェア", ""},
-		Category{15, 10, "カウンターチェア", ""},
-		Category{20, 0, "キッズチェア", ""},
-		Category{21, 20, "学習チェア", ""},
-		Category{22, 20, "ベビーソファ", ""},
-		Category{23, 20, "キッズハイチェア", ""},
-		Category{24, 20, "テーブルチェア", ""},
-		Category{30, 0, "オフィスチェア", ""},
-		Category{31, 30, "デスクチェア", ""},
-		Category{32, 30, "ビジネスチェア", ""},
-		Category{33, 30, "回転チェア", ""},
-		Category{34, 30, "リクライニングチェア", ""},
-		Category{35, 30, "投擲用椅子", ""},
-		Category{40, 0, "折りたたみ椅子", ""},
-		Category{41, 40, "パイプ椅子", ""},
-		Category{42, 40, "木製折りたたみ椅子", ""},
-		Category{43, 40, "キッチンチェア", ""},
-		Category{44, 40, "アウトドアチェア", ""},
-		Category{45, 40, "作業椅子", ""},
-		Category{50, 0, "ベンチ", ""},
-		Category{51, 50, "一人掛けベンチ", ""},
-		Category{52, 50, "二人掛けベンチ", ""},
-		Category{53, 50, "アウトドア用ベンチ", ""},
-		Category{54, 50, "収納付きベンチ", ""},
-		Category{55, 50, "背もたれ付きベンチ", ""},
-		Category{56, 50, "ベンチマーク", ""},
-		Category{60, 0, "座椅子", ""},
-		Category{61, 60, "和風座椅子", ""},
-		Category{62, 60, "高座椅子", ""},
-		Category{63, 60, "ゲーミング座椅子", ""},
-		Category{64, 60, "ロッキングチェア", ""},
-		Category{65, 60, "座布団", ""},
-		Category{66, 60, "空気椅子", ""},
-	}
+	categories = append(categories, Category{1, 0, "ソファー", ""})
+	categories = append(categories, Category{2, 1, "一人掛けソファー", ""})
+	categories = append(categories, Category{3, 1, "二人掛けソファー", ""})
+	categories = append(categories, Category{4, 1, "コーナーソファー", ""})
+	categories = append(categories, Category{5, 1, "二段ソファー", ""})
+	categories = append(categories, Category{6, 1, "ソファーベッド", ""})
+	categories = append(categories, Category{10, 0, "家庭用チェア", ""})
+	categories = append(categories, Category{11, 10, "スツール", ""})
+	categories = append(categories, Category{12, 10, "クッションスツール", ""})
+	categories = append(categories, Category{13, 10, "ダイニングチェア", ""})
+	categories = append(categories, Category{14, 10, "リビングチェア", ""})
+	categories = append(categories, Category{15, 10, "カウンターチェア", ""})
+	categories = append(categories, Category{20, 0, "キッズチェア", ""})
+	categories = append(categories, Category{21, 20, "学習チェア", ""})
+	categories = append(categories, Category{22, 20, "ベビーソファ", ""})
+	categories = append(categories, Category{23, 20, "キッズハイチェア", ""})
+	categories = append(categories, Category{24, 20, "テーブルチェア", ""})
+	categories = append(categories, Category{30, 0, "オフィスチェア", ""})
+	categories = append(categories, Category{31, 30, "デスクチェア", ""})
+	categories = append(categories, Category{32, 30, "ビジネスチェア", ""})
+	categories = append(categories, Category{33, 30, "回転チェア", ""})
+	categories = append(categories, Category{34, 30, "リクライニングチェア", ""})
+	categories = append(categories, Category{35, 30, "投擲用椅子", ""})
+	categories = append(categories, Category{40, 0, "折りたたみ椅子", ""})
+	categories = append(categories, Category{41, 40, "パイプ椅子", ""})
+	categories = append(categories, Category{42, 40, "木製折りたたみ椅子", ""})
+	categories = append(categories, Category{43, 40, "キッチンチェア", ""})
+	categories = append(categories, Category{44, 40, "アウトドアチェア", ""})
+	categories = append(categories, Category{45, 40, "作業椅子", ""})
+	categories = append(categories, Category{50, 0, "ベンチ", ""})
+	categories = append(categories, Category{51, 50, "一人掛けベンチ", ""})
+	categories = append(categories, Category{52, 50, "二人掛けベンチ", ""})
+	categories = append(categories, Category{53, 50, "アウトドア用ベンチ", ""})
+	categories = append(categories, Category{54, 50, "収納付きベンチ", ""})
+	categories = append(categories, Category{55, 50, "背もたれ付きベンチ", ""})
+	categories = append(categories, Category{56, 50, "ベンチマーク", ""})
+	categories = append(categories, Category{60, 0, "座椅子", ""})
+	categories = append(categories, Category{61, 60, "和風座椅子", ""})
+	categories = append(categories, Category{62, 60, "高座椅子", ""})
+	categories = append(categories, Category{63, 60, "ゲーミング座椅子", ""})
+	categories = append(categories, Category{64, 60, "ロッキングチェア", ""})
+	categories = append(categories, Category{65, 60, "座布団", ""})
+	categories = append(categories, Category{66, 60, "空気椅子", ""})
+
 	for _, category := range categories {
 		if category.ParentID != 0 {
 			category.ParentCategoryName = categories[category.ParentID-1].CategoryName
