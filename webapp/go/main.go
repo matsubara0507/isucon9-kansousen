@@ -1474,16 +1474,10 @@ func postBuy(w http.ResponseWriter, r *http.Request) {
 
 		if err != nil {
 			log.Printf("payment service is failed: %v", err)
-		} else if pstr.Status == "invalid" {
-			log.Print("カード情報に誤りがあります")
-		} else if pstr.Status == "fail" {
-			log.Print("カードの残高が足りません")
-		} else if pstr.Status != "ok" {
-			log.Print("想定外のエラー")
+			pstrCh <- nil
 		} else {
 			pstrCh <- pstr
 		}
-		pstrCh <- nil
 	}()
 
 	seller := User{}
@@ -1568,16 +1562,33 @@ func postBuy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	scr := <- scrCh
+	scr := <-scrCh
 	if scr == nil {
 		outputErrorMsg(w, http.StatusInternalServerError, "failed to request to shipment service")
 		tx.Rollback()
 		return
 	}
 
-	pstr := <- pstrCh
+	pstr := <-pstrCh
 	if pstr == nil {
-		outputErrorMsg(w, http.StatusInternalServerError, "failed to request to payment service")
+		outputErrorMsg(w, http.StatusInternalServerError, "payment service is failed")
+		tx.Rollback()
+		return
+	}
+	if pstr.Status == "invalid" {
+		outputErrorMsg(w, http.StatusBadRequest, "カード情報に誤りがあります")
+		tx.Rollback()
+		return
+	}
+
+	if pstr.Status == "fail" {
+		outputErrorMsg(w, http.StatusBadRequest, "カードの残高が足りません")
+		tx.Rollback()
+		return
+	}
+
+	if pstr.Status != "ok" {
+		outputErrorMsg(w, http.StatusBadRequest, "想定外のエラー")
 		tx.Rollback()
 		return
 	}
