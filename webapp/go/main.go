@@ -467,6 +467,35 @@ func getUserSimpleByID(q sqlx.Queryer, userID int64) (userSimple UserSimple, err
 	return userSimple, err
 }
 
+func getSellersByItems(q sqlx.Queryer, items []Item) (mapSeller map[int64]UserSimple, err error) {
+	mapSellerID := map[int64]bool{}
+	for _, item := range items {
+		mapSellerID[item.SellerID] = true
+	}
+	sellerIDs := []int64{}
+	for k, _ := range mapSellerID {
+		sellerIDs = append(sellerIDs, k)
+	}
+
+	var sellers []User
+	inQuery, inArgs, err := sqlx.In("SELECT * FROM `users` WHERE `id` IN (?)", sellerIDs)
+	if err != nil {
+		log.Printf("seller not found: %v", err)
+		return mapSeller, err
+	}
+	err = dbx.Select(&sellers, inQuery, inArgs...)
+	if err != nil {
+		log.Printf("seller not found: %v", err)
+		return mapSeller, err
+	}
+
+	mapSeller = map[int64]UserSimple{}
+	for _, seller := range sellers {
+		mapSeller[seller.ID] = UserSimple{seller.ID, seller.AccountName, seller.NumSellItems}
+	}
+	return mapSeller, nil
+}
+
 func getCategoryByID(q sqlx.Queryer, categoryID int) (category Category, err error) {
 	if 0 < categoryID && categoryID <= MaxCategoryID {
 		category = categories[categoryID]
@@ -616,10 +645,16 @@ func getNewItems(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	mapSeller, err := getSellersByItems(dbx, items)
+	if err != nil {
+		outputErrorMsg(w, http.StatusInternalServerError, "db error")
+		return
+	}
+
 	itemSimples := []ItemSimple{}
 	for _, item := range items {
-		seller, err := getUserSimpleByID(dbx, item.SellerID)
-		if err != nil {
+		seller, ok := mapSeller[item.SellerID]
+		if !ok {
 			outputErrorMsg(w, http.StatusNotFound, "seller not found")
 			return
 		}
@@ -743,10 +778,16 @@ func getNewCategoryItems(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	mapSeller, err := getSellersByItems(dbx, items)
+	if err != nil {
+		outputErrorMsg(w, http.StatusInternalServerError, "db error")
+		return
+	}
+
 	itemSimples := []ItemSimple{}
 	for _, item := range items {
-		seller, err := getUserSimpleByID(dbx, item.SellerID)
-		if err != nil {
+		seller, ok := mapSeller[item.SellerID]
+		if !ok {
 			outputErrorMsg(w, http.StatusNotFound, "seller not found")
 			return
 		}
@@ -856,6 +897,11 @@ func getUserItems(w http.ResponseWriter, r *http.Request) {
 			outputErrorMsg(w, http.StatusInternalServerError, "db error")
 			return
 		}
+	}
+
+	if err != nil {
+		outputErrorMsg(w, http.StatusInternalServerError, "db error")
+		return
 	}
 
 	itemSimples := []ItemSimple{}
