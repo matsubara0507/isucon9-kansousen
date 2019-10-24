@@ -456,9 +456,9 @@ func getUser(r *http.Request) (user User, errCode int, errMsg string) {
 }
 
 func getUserSimpleByID(q sqlx.Queryer, userID int64) (userSimple UserSimple, err error) {
-	err = sqlx.Get(q, &userSimple, "SELECT id,account_name,num_sell_items FROM `users` WHERE `id` = ?", userID)
+	err = q.QueryRowx("SELECT id,account_name,num_sell_items FROM `users` WHERE `id` = ?", userID).Scan(&userSimple.ID, &userSimple.AccountName, &userSimple.NumSellItems)
 	if err != nil {
-		return userSimple, err
+		log.Printf("get UserSimple err: %v", err)
 	}
 	return userSimple, err
 }
