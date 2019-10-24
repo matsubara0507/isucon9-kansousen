@@ -743,10 +743,32 @@ func getNewCategoryItems(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	mapSellerID := map[int64]bool{}
+	for _, item := range items {
+		mapSellerID[item.SellerID] = true
+	}
+	sellerIDs := []int64{}
+	for k, _ := range mapSellerID {
+		sellerIDs = append(sellerIDs, k)
+	}
+
+	var sellers []User
+	err = sqlx.Get(dbx, &sellers, "SELECT * FROM `users` WHERE `id` IN (?)", sellerIDs)
+	if err != nil {
+		log.Printf("seller not found: %v", err)
+		outputErrorMsg(w, http.StatusNotFound, "seller not found")
+		return
+	}
+
+	mapSeller := map[int64]UserSimple{}
+	for _, seller := range sellers {
+		mapSeller[seller.ID] = UserSimple{seller.ID, seller.AccountName, seller.NumSellItems}
+	}
+
 	itemSimples := []ItemSimple{}
 	for _, item := range items {
-		seller, err := getUserSimpleByID(dbx, item.SellerID)
-		if err != nil {
+		seller, ok := mapSeller[item.SellerID]
+		if !ok {
 			outputErrorMsg(w, http.StatusNotFound, "seller not found")
 			return
 		}
