@@ -1042,8 +1042,17 @@ func getTransactions(w http.ResponseWriter, r *http.Request) {
 	for _, item := range items {
 		itemIDs = append(itemIDs, item.ID)
 	}
+
+	inQuery, inArgs, err := sqlx.In("SELECT * FROM `transaction_evidences` WHERE `id` IN (?)", itemIDs)
+	if err != nil {
+		log.Print(err)
+		outputErrorMsg(w, http.StatusInternalServerError, "sql error")
+		tx.Rollback()
+		return
+	}
+
 	var transactionEvidences []TransactionEvidence
-	err = tx.Select(&transactionEvidences, "SELECT * FROM `transaction_evidences` WHERE `item_id` IN (?)", itemIDs)
+	err = tx.Select(&transactionEvidences, inQuery, inArgs...)
 	if err != nil && err != sql.ErrNoRows {
 		// It's able to ignore ErrNoRows
 		log.Print(err)
