@@ -461,9 +461,10 @@ func getUserSimpleByID(q sqlx.Queryer, userID int64) (userSimple UserSimple, err
 }
 
 func getCategoryByID(q sqlx.Queryer, categoryID int) (category Category, err error) {
-	if 0 < categoryID && categoryID < len(categories) {
+	if 0 < categoryID && categoryID <= len(categories) {
 		return categories[categoryID-1], nil
 	}
+	log.Printf("category not found: %d", categoryID)
 	return category, fmt.Errorf("category not found: %d", categoryID)
 }
 
