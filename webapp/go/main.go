@@ -513,7 +513,6 @@ func getUsersByIDs(ids []int64) (mapUser map[int64]UserSimple, err error) {
 	return mapUser, nil
 }
 
-
 func getCategoryByID(q sqlx.Queryer, categoryID int) (category Category, err error) {
 	if 0 < categoryID && categoryID <= MaxCategoryID {
 		category = categories[categoryID]
@@ -1110,18 +1109,14 @@ func getTransactions(w http.ResponseWriter, r *http.Request) {
 			itemDetail.Buyer = &buyer
 		}
 
-		if item.Status != ItemStatusOnSale {
-			transactionEvidence, ok := mapTransactionEvidence[item.ID]
-			if !ok {
-				outputErrorMsg(w, http.StatusNotFound, "transaction_evidence not found")
-				tx.Rollback()
-				return
-			}
-
+		transactionEvidence, ok := mapTransactionEvidence[item.ID]
+		if ok {
 			itemDetail.TransactionEvidenceID = transactionEvidence.ID
 			itemDetail.TransactionEvidenceStatus = transactionEvidence.Status
 
-			if item.Status == ItemStatusTrading {
+			if item.Status == ItemStatusSoldOut {
+				itemDetail.ShippingStatus = ShippingsStatusDone
+			} else {
 				shipping := Shipping{}
 				err = tx.Get(&shipping, "SELECT * FROM `shippings` WHERE `transaction_evidence_id` = ?", transactionEvidence.ID)
 				if err == sql.ErrNoRows {
@@ -1146,8 +1141,6 @@ func getTransactions(w http.ResponseWriter, r *http.Request) {
 				}
 
 				itemDetail.ShippingStatus = ssr.Status
-			} else {
-				itemDetail.ShippingStatus = ShippingsStatusDone
 			}
 		}
 
