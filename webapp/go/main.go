@@ -1003,11 +1003,18 @@ func getTransactions(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	mapSellers, err := getSellersByItems(dbx, items)
+	if err != nil {
+		outputErrorMsg(w, http.StatusNotFound, "seller not found")
+		return
+	}
+
+
 	tx := dbx.MustBegin()
 	itemDetails := []ItemDetail{}
 	for _, item := range items {
-		seller, err := getUserSimpleByID(tx, item.SellerID)
-		if err != nil {
+		seller, ok := mapSellers[item.SellerID]
+		if !ok {
 			outputErrorMsg(w, http.StatusNotFound, "seller not found")
 			tx.Rollback()
 			return
