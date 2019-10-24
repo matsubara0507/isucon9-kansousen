@@ -31,9 +31,9 @@ CREATE TABLE `items` (
   `category_id` int unsigned NOT NULL,
   `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
   `updated_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  INDEX idx_new_category_item (`status`, `category_id`, `created_at`),
-  INDEX idx_user_item (`status`, `seller_id`, `created_at`),
-  INDEX idx_user_item (`seller_id`, `buyer_id`, `created_at`),
+  INDEX idx_for_new_category_item (`status`, `category_id`, `created_at`),
+  INDEX idx_for_user_item (`status`, `seller_id`, `created_at`),
+  INDEX idx_for_transaction (`seller_id`, `buyer_id`, `created_at`),
   INDEX idx_category_id (`category_id`)
 ) ENGINE=InnoDB DEFAULT CHARACTER SET utf8mb4;
 
