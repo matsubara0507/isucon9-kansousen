@@ -57,13 +57,15 @@ const (
 	TransactionsPerPage = 10
 
 	BcryptCost = 10
+
+	MaxCategoryID = 66
 )
 
 var (
 	templates  *template.Template
 	dbx        *sqlx.DB
 	store      sessions.Store
-	categories [43]Category
+	categories [MaxCategoryID]Category
 )
 
 type Config struct {
@@ -266,7 +268,7 @@ type resSetting struct {
 	CSRFToken         string       `json:"csrf_token"`
 	PaymentServiceURL string       `json:"payment_service_url"`
 	User              *User        `json:"user,omitempty"`
-	Categories        [43]Category `json:"categories"`
+	Categories        [MaxCategoryID]Category `json:"categories"`
 }
 
 func init() {
@@ -281,8 +283,8 @@ func init() {
 	categories = initCategories()
 }
 
-func initCategories() [43]Category {
-	cs := [...]Category{
+func initCategories() [MaxCategoryID]Category {
+	embed := [...]Category{
 		Category{1, 0, "ソファー", ""},
 		Category{2, 1, "一人掛けソファー", "ソファー"},
 		Category{3, 1, "二人掛けソファー", "ソファー"},
@@ -326,6 +328,11 @@ func initCategories() [43]Category {
 		Category{64, 60, "ロッキングチェア", "座椅子"},
 		Category{65, 60, "座布団", "座椅子"},
 		Category{66, 60, "空気椅子", "座椅子"},
+	}
+
+	cs := [MaxCategoryID]Category{}
+	for _, v := range embed {
+		cs[v.ID] = v
 	}
 
 	return cs
@@ -461,8 +468,11 @@ func getUserSimpleByID(q sqlx.Queryer, userID int64) (userSimple UserSimple, err
 }
 
 func getCategoryByID(q sqlx.Queryer, categoryID int) (category Category, err error) {
-	if 0 < categoryID && categoryID <= len(categories) {
-		return categories[categoryID-1], nil
+	if 0 < categoryID && categoryID <= MaxCategoryID {
+		category = categories[categoryID]
+		if category.ID != 0 {
+			return category, nil
+		}
 	}
 	log.Printf("category not found: %d", categoryID)
 	return category, fmt.Errorf("category not found: %d", categoryID)
