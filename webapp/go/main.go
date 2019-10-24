@@ -65,7 +65,7 @@ var (
 	templates  *template.Template
 	dbx        *sqlx.DB
 	store      sessions.Store
-	categories [MaxCategoryID]Category
+	categories [MaxCategoryID + 1]Category
 )
 
 type Config struct {
@@ -265,10 +265,10 @@ type reqBump struct {
 }
 
 type resSetting struct {
-	CSRFToken         string       `json:"csrf_token"`
-	PaymentServiceURL string       `json:"payment_service_url"`
-	User              *User        `json:"user,omitempty"`
-	Categories        [MaxCategoryID]Category `json:"categories"`
+	CSRFToken         string                      `json:"csrf_token"`
+	PaymentServiceURL string                      `json:"payment_service_url"`
+	User              *User                       `json:"user,omitempty"`
+	Categories        [MaxCategoryID + 1]Category `json:"categories"`
 }
 
 func init() {
@@ -283,7 +283,7 @@ func init() {
 	categories = initCategories()
 }
 
-func initCategories() [MaxCategoryID]Category {
+func initCategories() [MaxCategoryID + 1]Category {
 	embed := [...]Category{
 		Category{1, 0, "ソファー", ""},
 		Category{2, 1, "一人掛けソファー", "ソファー"},
@@ -330,7 +330,7 @@ func initCategories() [MaxCategoryID]Category {
 		Category{66, 60, "空気椅子", "座椅子"},
 	}
 
-	cs := [MaxCategoryID]Category{}
+	cs := [MaxCategoryID + 1]Category{}
 	for _, v := range embed {
 		cs[v.ID] = v
 	}
