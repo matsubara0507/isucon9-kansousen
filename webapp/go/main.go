@@ -1486,7 +1486,7 @@ func postBuy(w http.ResponseWriter, r *http.Request) {
 			FromAddress: seller.Address,
 			FromName:    seller.AccountName,
 		})
-		if err != nil {
+		if err == nil {
 			scrCh <- scr
 		} else {
 			log.Print(err)
