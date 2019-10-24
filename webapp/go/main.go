@@ -1042,7 +1042,7 @@ func getTransactions(w http.ResponseWriter, r *http.Request) {
 		itemIDs = append(itemIDs, item.ID)
 	}
 
-	inQuery, inArgs, err := sqlx.In("SELECT * FROM `transaction_evidences` WHERE `id` IN (?)", itemIDs)
+	inQuery, inArgs, err := sqlx.In("SELECT * FROM `transaction_evidences` WHERE `item_id` IN (?)", itemIDs)
 	if err != nil {
 		log.Print(err)
 		outputErrorMsg(w, http.StatusInternalServerError, "sql error")
