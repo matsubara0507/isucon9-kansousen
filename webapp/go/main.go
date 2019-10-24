@@ -753,10 +753,16 @@ func getNewCategoryItems(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var sellers []User
-	err = sqlx.Get(dbx, &sellers, "SELECT * FROM `users` WHERE `id` IN (?)", sellerIDs)
+	inQuery, inArgs, err = sqlx.In("SELECT * FROM `users` WHERE `id` IN (?)", sellerIDs)
 	if err != nil {
 		log.Printf("seller not found: %v", err)
-		outputErrorMsg(w, http.StatusNotFound, "seller not found")
+		outputErrorMsg(w, http.StatusInternalServerError, "db error")
+		return
+	}
+	err = dbx.Select(&sellers, inQuery, inArgs...)
+	if err != nil {
+		log.Printf("seller not found: %v", err)
+		outputErrorMsg(w, http.StatusInternalServerError, "db error")
 		return
 	}
 
