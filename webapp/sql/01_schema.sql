@@ -23,7 +23,7 @@ CREATE TABLE `items` (
   `id` bigint NOT NULL AUTO_INCREMENT PRIMARY KEY,
   `seller_id` bigint NOT NULL,
   `buyer_id` bigint NOT NULL DEFAULT 0,
-  `status` enum('on_sale', 'trading', 'sold_out', 'stop', 'cancel') NOT NULL,
+  `status` enum('on_sale', 'trading', 'sold_out') NOT NULL,
   `name` varchar(191) NOT NULL,
   `price` int unsigned NOT NULL,
   `description` text NOT NULL,
@@ -31,8 +31,9 @@ CREATE TABLE `items` (
   `category_id` int unsigned NOT NULL,
   `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
   `updated_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  INDEX idx_new_category_item (`status`, `category_id`, `created_at`),
-  INDEX idx_user_item (`status`, `seller_id`, `created_at`),
+  INDEX idx_for_new_category_item (`status`, `category_id`, `created_at`),
+  INDEX idx_for_user_item (`status`, `seller_id`, `created_at`),
+  INDEX idx_for_transaction (`seller_id`, `buyer_id`, `created_at`),
   INDEX idx_category_id (`category_id`)
 ) ENGINE=InnoDB DEFAULT CHARACTER SET utf8mb4;
 
@@ -49,7 +50,8 @@ CREATE TABLE `transaction_evidences` (
   `item_category_id` int unsigned NOT NULL,
   `item_root_category_id` int unsigned NOT NULL,
   `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  `updated_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP
+  `updated_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  INDEX idx_item_id (`item_id`)
 ) ENGINE=InnoDB DEFAULT CHARACTER SET utf8mb4;
 
 DROP TABLE IF EXISTS `shippings`;

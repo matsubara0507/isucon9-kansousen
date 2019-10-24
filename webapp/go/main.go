@@ -36,8 +36,8 @@ const (
 	ItemStatusOnSale  = "on_sale"
 	ItemStatusTrading = "trading"
 	ItemStatusSoldOut = "sold_out"
-	ItemStatusStop    = "stop"
-	ItemStatusCancel  = "cancel"
+	//ItemStatusStop    = "stop"
+	//ItemStatusCancel  = "cancel"
 
 	PaymentServiceIsucariAPIKey = "a15400e46c83635eb181-946abb51ff26a868317c"
 	PaymentServiceIsucariShopID = "11"
@@ -467,7 +467,7 @@ func getUserSimpleByID(q sqlx.Queryer, userID int64) (userSimple UserSimple, err
 	return userSimple, err
 }
 
-func getSellersByItems(q sqlx.Queryer, items []Item) (mapSeller map[int64]UserSimple, err error) {
+func getSellersByItems(items []Item) (mapSeller map[int64]UserSimple, err error) {
 	mapSellerID := map[int64]bool{}
 	for _, item := range items {
 		mapSellerID[item.SellerID] = true
@@ -477,23 +477,40 @@ func getSellersByItems(q sqlx.Queryer, items []Item) (mapSeller map[int64]UserSi
 		sellerIDs = append(sellerIDs, k)
 	}
 
-	var sellers []User
-	inQuery, inArgs, err := sqlx.In("SELECT * FROM `users` WHERE `id` IN (?)", sellerIDs)
-	if err != nil {
-		log.Printf("seller not found: %v", err)
-		return mapSeller, err
+	return getUsersByIDs(sellerIDs)
+}
+
+func getBuyersByItems(items []Item) (mapBuyer map[int64]UserSimple, err error) {
+	mapBuyerID := map[int64]bool{}
+	for _, item := range items {
+		mapBuyerID[item.BuyerID] = true
 	}
-	err = dbx.Select(&sellers, inQuery, inArgs...)
+	buyerIDs := []int64{}
+	for k, _ := range mapBuyerID {
+		buyerIDs = append(buyerIDs, k)
+	}
+	return getUsersByIDs(buyerIDs)
+}
+
+func getUsersByIDs(ids []int64) (mapUser map[int64]UserSimple, err error) {
+	inQuery, inArgs, err := sqlx.In("SELECT * FROM `users` WHERE `id` IN (?)", ids)
 	if err != nil {
 		log.Printf("seller not found: %v", err)
-		return mapSeller, err
+		return mapUser, err
 	}
 
-	mapSeller = map[int64]UserSimple{}
-	for _, seller := range sellers {
-		mapSeller[seller.ID] = UserSimple{seller.ID, seller.AccountName, seller.NumSellItems}
+	var users []User
+	err = dbx.Select(&users, inQuery, inArgs...)
+	if err != nil {
+		log.Printf("seller not found: %v", err)
+		return mapUser, err
 	}
-	return mapSeller, nil
+
+	mapUser = map[int64]UserSimple{}
+	for _, user := range users {
+		mapUser[user.ID] = UserSimple{user.ID, user.AccountName, user.NumSellItems}
+	}
+	return mapUser, nil
 }
 
 func getCategoryByID(q sqlx.Queryer, categoryID int) (category Category, err error) {
@@ -645,7 +662,7 @@ func getNewItems(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	mapSeller, err := getSellersByItems(dbx, items)
+	mapSeller, err := getSellersByItems(items)
 	if err != nil {
 		outputErrorMsg(w, http.StatusInternalServerError, "db error")
 		return
@@ -778,7 +795,7 @@ func getNewCategoryItems(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	mapSeller, err := getSellersByItems(dbx, items)
+	mapSeller, err := getSellersByItems(items)
 	if err != nil {
 		outputErrorMsg(w, http.StatusInternalServerError, "db error")
 		return
@@ -976,14 +993,9 @@ func getTransactions(w http.ResponseWriter, r *http.Request) {
 	if itemID > 0 && createdAt > 0 {
 		// paging
 		err := tx.Select(&items,
-			"SELECT * FROM `items` WHERE (`seller_id` = ? OR `buyer_id` = ?) AND `status` IN (?,?,?,?,?) AND (`created_at` < ?  OR (`created_at` <= ? AND `id` < ?)) ORDER BY `created_at` DESC, `id` DESC LIMIT ?",
+			"SELECT * FROM `items` WHERE (`seller_id` = ? OR `buyer_id` = ?) AND (`created_at` < ?  OR (`created_at` <= ? AND `id` < ?)) ORDER BY `created_at` DESC, `id` DESC LIMIT ?",
 			user.ID,
 			user.ID,
-			ItemStatusOnSale,
-			ItemStatusTrading,
-			ItemStatusSoldOut,
-			ItemStatusCancel,
-			ItemStatusStop,
 			time.Unix(createdAt, 0),
 			time.Unix(createdAt, 0),
 			itemID,
@@ -998,14 +1010,9 @@ func getTransactions(w http.ResponseWriter, r *http.Request) {
 	} else {
 		// 1st page
 		err := tx.Select(&items,
-			"SELECT * FROM `items` WHERE (`seller_id` = ? OR `buyer_id` = ?) AND `status` IN (?,?,?,?,?) ORDER BY `created_at` DESC, `id` DESC LIMIT ?",
+			"SELECT * FROM `items` WHERE (`seller_id` = ? OR `buyer_id` = ?) ORDER BY `created_at` DESC, `id` DESC LIMIT ?",
 			user.ID,
 			user.ID,
-			ItemStatusOnSale,
-			ItemStatusTrading,
-			ItemStatusSoldOut,
-			ItemStatusCancel,
-			ItemStatusStop,
 			TransactionsPerPage+1,
 		)
 		if err != nil {
@@ -1016,10 +1023,51 @@ func getTransactions(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	mapSellers, err := getSellersByItems(items)
+	if err != nil {
+		outputErrorMsg(w, http.StatusNotFound, "seller not found")
+		tx.Rollback()
+		return
+	}
+
+	mapBuyers, err := getBuyersByItems(items)
+	if err != nil {
+		outputErrorMsg(w, http.StatusNotFound, "buyer not found")
+		tx.Rollback()
+		return
+	}
+
+	itemIDs := []int64{}
+	for _, item := range items {
+		itemIDs = append(itemIDs, item.ID)
+	}
+
+	inQuery, inArgs, err := sqlx.In("SELECT * FROM `transaction_evidences` WHERE `item_id` IN (?)", itemIDs)
+	if err != nil {
+		log.Print(err)
+		outputErrorMsg(w, http.StatusInternalServerError, "sql error")
+		tx.Rollback()
+		return
+	}
+
+	var transactionEvidences []TransactionEvidence
+	err = tx.Select(&transactionEvidences, inQuery, inArgs...)
+	if err != nil && err != sql.ErrNoRows {
+		// It's able to ignore ErrNoRows
+		log.Print(err)
+		outputErrorMsg(w, http.StatusInternalServerError, "db error")
+		tx.Rollback()
+		return
+	}
+	mapTransactionEvidence := map[int64]TransactionEvidence{}
+	for _, transactionEvidence := range transactionEvidences {
+		mapTransactionEvidence[transactionEvidence.ItemID] = transactionEvidence
+	}
+
 	itemDetails := []ItemDetail{}
 	for _, item := range items {
-		seller, err := getUserSimpleByID(tx, item.SellerID)
-		if err != nil {
+		seller, ok := mapSellers[item.SellerID]
+		if !ok {
 			outputErrorMsg(w, http.StatusNotFound, "seller not found")
 			tx.Rollback()
 			return
@@ -1051,8 +1099,8 @@ func getTransactions(w http.ResponseWriter, r *http.Request) {
 		}
 
 		if item.BuyerID != 0 {
-			buyer, err := getUserSimpleByID(tx, item.BuyerID)
-			if err != nil {
+			buyer, ok := mapBuyers[item.BuyerID]
+			if !ok {
 				outputErrorMsg(w, http.StatusNotFound, "buyer not found")
 				tx.Rollback()
 				return
@@ -1061,43 +1109,39 @@ func getTransactions(w http.ResponseWriter, r *http.Request) {
 			itemDetail.Buyer = &buyer
 		}
 
-		transactionEvidence := TransactionEvidence{}
-		err = tx.Get(&transactionEvidence, "SELECT * FROM `transaction_evidences` WHERE `item_id` = ?", item.ID)
-		if err != nil && err != sql.ErrNoRows {
-			// It's able to ignore ErrNoRows
-			log.Print(err)
-			outputErrorMsg(w, http.StatusInternalServerError, "db error")
-			tx.Rollback()
-			return
-		}
-
-		if transactionEvidence.ID > 0 {
-			shipping := Shipping{}
-			err = tx.Get(&shipping, "SELECT * FROM `shippings` WHERE `transaction_evidence_id` = ?", transactionEvidence.ID)
-			if err == sql.ErrNoRows {
-				outputErrorMsg(w, http.StatusNotFound, "shipping not found")
-				tx.Rollback()
-				return
-			}
-			if err != nil {
-				log.Print(err)
-				outputErrorMsg(w, http.StatusInternalServerError, "db error")
-				tx.Rollback()
-				return
-			}
-			ssr, err := APIShipmentStatus(getShipmentServiceURL(), &APIShipmentStatusReq{
-				ReserveID: shipping.ReserveID,
-			})
-			if err != nil {
-				log.Print(err)
-				outputErrorMsg(w, http.StatusInternalServerError, "failed to request to shipment service")
-				tx.Rollback()
-				return
-			}
-
+		transactionEvidence, ok := mapTransactionEvidence[item.ID]
+		if ok {
 			itemDetail.TransactionEvidenceID = transactionEvidence.ID
 			itemDetail.TransactionEvidenceStatus = transactionEvidence.Status
-			itemDetail.ShippingStatus = ssr.Status
+
+			if item.Status == ItemStatusSoldOut {
+				itemDetail.ShippingStatus = ShippingsStatusDone
+			} else {
+				shipping := Shipping{}
+				err = tx.Get(&shipping, "SELECT * FROM `shippings` WHERE `transaction_evidence_id` = ?", transactionEvidence.ID)
+				if err == sql.ErrNoRows {
+					outputErrorMsg(w, http.StatusNotFound, "shipping not found")
+					tx.Rollback()
+					return
+				}
+				if err != nil {
+					log.Print(err)
+					outputErrorMsg(w, http.StatusInternalServerError, "db error")
+					tx.Rollback()
+					return
+				}
+				ssr, err := APIShipmentStatus(getShipmentServiceURL(), &APIShipmentStatusReq{
+					ReserveID: shipping.ReserveID,
+				})
+				if err != nil {
+					log.Print(err)
+					outputErrorMsg(w, http.StatusInternalServerError, "failed to request to shipment service")
+					tx.Rollback()
+					return
+				}
+
+				itemDetail.ShippingStatus = ssr.Status
+			}
 		}
 
 		itemDetails = append(itemDetails, itemDetail)
