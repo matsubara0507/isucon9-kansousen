@@ -305,7 +305,7 @@ func initCategories() [MaxCategoryID + 1]Category {
 		Category{30, 0, "オフィスチェア", ""},
 		Category{31, 30, "デスクチェア", "オフィスチェア"},
 		Category{32, 30, "ビジネスチェア", "オフィスチェア"},
-		Category{33, 30, "回転チェア", ""},
+		Category{33, 30, "回転チェア", "オフィスチェア"},
 		Category{34, 30, "リクライニングチェア", "オフィスチェア"},
 		Category{35, 30, "投擲用椅子", "オフィスチェア"},
 		Category{40, 0, "折りたたみ椅子", ""},
