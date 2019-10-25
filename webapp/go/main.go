@@ -68,7 +68,7 @@ var (
 	categories         [MaxCategoryID + 1]Category
 	paymentServiceUrl  string
 	shipmentServiceUrl string
-	mapItemID          map[int64]bool
+	mapItemID          map[int64]int64
 )
 
 type Config struct {
@@ -286,7 +286,7 @@ func init() {
 	categories = initCategories()
 	paymentServiceUrl = DefaultPaymentServiceURL
 	shipmentServiceUrl = DefaultShipmentServiceURL
-	mapItemID = map[int64]bool{}
+	mapItemID = map[int64]int64{}
 }
 
 func initCategories() [MaxCategoryID + 1]Category {
@@ -345,13 +345,17 @@ func initCategories() [MaxCategoryID + 1]Category {
 }
 
 func initMapItemID() error {
-	var itemIDs []int64
-	err := dbx.Get(&itemIDs, "SELECT `id` FROM `items`")
+	rows, err := dbx.Query("SELECT `id`, `seller_id` FROM `items`")
 	if err != nil {
 		return err
 	}
-	for _, id := range itemIDs {
-		mapItemID[id] = true
+
+	for rows.Next() {
+		var itemID, sellerID int64
+		if err = rows.Scan(&itemID, &sellerID); err != nil {
+			return err
+		}
+		mapItemID[itemID] = sellerID
 	}
 	return nil
 }
@@ -547,7 +551,7 @@ func getUsersByIDs(ids []int64) (mapUser map[int64]UserSimple, err error) {
 	return mapUser, nil
 }
 
-func getCategoryByID(q sqlx.Queryer, categoryID int) (category Category, err error) {
+func getCategoryByID(categoryID int) (category Category, err error) {
 	if 0 < categoryID && categoryID <= MaxCategoryID {
 		category = categories[categoryID]
 		if category.ID != 0 {
@@ -710,7 +714,7 @@ func getNewItems(w http.ResponseWriter, r *http.Request) {
 			outputErrorMsg(w, http.StatusNotFound, "seller not found")
 			return
 		}
-		category, err := getCategoryByID(dbx, item.CategoryID)
+		category, err := getCategoryByID(item.CategoryID)
 		if err != nil {
 			outputErrorMsg(w, http.StatusNotFound, "category not found")
 			return
@@ -752,7 +756,7 @@ func getNewCategoryItems(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	rootCategory, err := getCategoryByID(dbx, rootCategoryID)
+	rootCategory, err := getCategoryByID(rootCategoryID)
 	if err != nil || rootCategory.ParentID != 0 {
 		outputErrorMsg(w, http.StatusNotFound, "category not found")
 		return
@@ -843,7 +847,7 @@ func getNewCategoryItems(w http.ResponseWriter, r *http.Request) {
 			outputErrorMsg(w, http.StatusNotFound, "seller not found")
 			return
 		}
-		category, err := getCategoryByID(dbx, item.CategoryID)
+		category, err := getCategoryByID(item.CategoryID)
 		if err != nil {
 			outputErrorMsg(w, http.StatusNotFound, "category not found")
 			return
@@ -952,7 +956,7 @@ func getUserItems(w http.ResponseWriter, r *http.Request) {
 
 	itemSimples := []ItemSimple{}
 	for _, item := range items {
-		category, err := getCategoryByID(dbx, item.CategoryID)
+		category, err := getCategoryByID(item.CategoryID)
 		if err != nil {
 			outputErrorMsg(w, http.StatusNotFound, "category not found")
 			return
@@ -1101,7 +1105,7 @@ func getTransactions(w http.ResponseWriter, r *http.Request) {
 			tx.Rollback()
 			return
 		}
-		category, err := getCategoryByID(tx, item.CategoryID)
+		category, err := getCategoryByID(item.CategoryID)
 		if err != nil {
 			outputErrorMsg(w, http.StatusNotFound, "category not found")
 			tx.Rollback()
@@ -1227,7 +1231,7 @@ func getItem(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	category, err := getCategoryByID(dbx, item.CategoryID)
+	category, err := getCategoryByID(item.CategoryID)
 	if err != nil {
 		outputErrorMsg(w, http.StatusNotFound, "category not found")
 		return
@@ -1342,25 +1346,19 @@ func postItemEdit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	targetItem := Item{}
-	err = dbx.Get(&targetItem, "SELECT * FROM `items` WHERE `id` = ?", itemID)
-	if err == sql.ErrNoRows {
+	sellerID, ok := mapItemID[itemID]
+	if !ok {
 		outputErrorMsg(w, http.StatusNotFound, "item not found")
 		return
 	}
-	if err != nil {
-		log.Print(err)
 
-		outputErrorMsg(w, http.StatusInternalServerError, "db error")
-		return
-	}
-
-	if targetItem.SellerID != seller.ID {
+	if sellerID != seller.ID {
 		outputErrorMsg(w, http.StatusForbidden, "自分の商品以外は編集できません")
 		return
 	}
 
 	tx := dbx.MustBegin()
+	targetItem := Item{}
 	err = tx.Get(&targetItem, "SELECT * FROM `items` WHERE `id` = ? FOR UPDATE", itemID)
 	if err != nil {
 		log.Print(err)
@@ -1485,32 +1483,33 @@ func postBuy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	tx := dbx.MustBegin()
+	sellerID, ok := mapItemID[rb.ItemID]
+	if !ok {
+		outputErrorMsg(w, http.StatusNotFound, "item not found")
+		return
+	}
+
+	if sellerID == buyer.ID {
+		outputErrorMsg(w, http.StatusForbidden, "自分の商品は買えません")
+		return
+	}
 
 	targetItem := Item{}
-	err = tx.Get(&targetItem, "SELECT * FROM `items` WHERE `id` = ? FOR UPDATE", rb.ItemID)
+	err = dbx.Get(&targetItem, "SELECT * FROM `items` WHERE `id` = ? AND `status` = ? FOR UPDATE", rb.ItemID, ItemStatusOnSale)
 	if err == sql.ErrNoRows {
-		outputErrorMsg(w, http.StatusNotFound, "item not found")
-		tx.Rollback()
+		outputErrorMsg(w, http.StatusForbidden, "item is not for sale")
 		return
 	}
 	if err != nil {
 		log.Print(err)
-
 		outputErrorMsg(w, http.StatusInternalServerError, "db error")
-		tx.Rollback()
 		return
 	}
+	_, err = getCategoryByID(targetItem.CategoryID)
+	if err != nil {
+		log.Print(err)
 
-	if targetItem.Status != ItemStatusOnSale {
-		outputErrorMsg(w, http.StatusForbidden, "item is not for sale")
-		tx.Rollback()
-		return
-	}
-
-	if targetItem.SellerID == buyer.ID {
-		outputErrorMsg(w, http.StatusForbidden, "自分の商品は買えません")
-		tx.Rollback()
+		outputErrorMsg(w, http.StatusInternalServerError, "category id error")
 		return
 	}
 
@@ -1531,23 +1530,16 @@ func postBuy(w http.ResponseWriter, r *http.Request) {
 		}
 	}()
 
-	seller := User{}
-	err = tx.Get(&seller, "SELECT * FROM `users` WHERE `id` = ? FOR UPDATE", targetItem.SellerID)
-	if err == sql.ErrNoRows {
-		outputErrorMsg(w, http.StatusNotFound, "seller not found")
-		tx.Rollback()
-		return
-	}
-	if err != nil {
-		log.Print(err)
-
-		outputErrorMsg(w, http.StatusInternalServerError, "db error")
-		tx.Rollback()
-		return
-	}
-
 	scrCh := make(chan *APIShipmentCreateRes)
 	go func() {
+		seller := User{}
+		err = dbx.Get(&seller, "SELECT * FROM `users` WHERE `id` = ?", sellerID)
+		if err != nil {
+			log.Print(err)
+			scrCh <- nil
+			return
+		}
+
 		scr, err := APIShipmentCreate(getShipmentServiceURL(), &APIShipmentCreateReq{
 			ToAddress:   buyer.Address,
 			ToName:      buyer.AccountName,
@@ -1562,15 +1554,7 @@ func postBuy(w http.ResponseWriter, r *http.Request) {
 		}
 	}()
 
-	_, err = getCategoryByID(tx, targetItem.CategoryID)
-	if err != nil {
-		log.Print(err)
-
-		outputErrorMsg(w, http.StatusInternalServerError, "category id error")
-		tx.Rollback()
-		return
-	}
-
+	tx := dbx.MustBegin()
 	result, err := tx.Exec("INSERT INTO `transaction_evidences` (`seller_id`, `buyer_id`, `status`, `item_id`, `item_price`) VALUES (?, ?, ?, ?, ?)",
 		targetItem.SellerID,
 		buyer.ID,
@@ -1609,37 +1593,31 @@ func postBuy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	scr := <-scrCh
-	if scr == nil {
-		outputErrorMsg(w, http.StatusInternalServerError, "failed to request to shipment service")
-		tx.Rollback()
-		return
-	}
-
 	pstr := <-pstrCh
 	if pstr == nil {
 		outputErrorMsg(w, http.StatusInternalServerError, "payment service is failed")
 		tx.Rollback()
 		return
 	}
-	if pstr.Status == "invalid" {
-		outputErrorMsg(w, http.StatusBadRequest, "カード情報に誤りがあります")
-		tx.Rollback()
-		return
-	}
-
-	if pstr.Status == "fail" {
-		outputErrorMsg(w, http.StatusBadRequest, "カードの残高が足りません")
-		tx.Rollback()
-		return
-	}
-
 	if pstr.Status != "ok" {
-		outputErrorMsg(w, http.StatusBadRequest, "想定外のエラー")
+		switch pstr.Status {
+		case "invalid":
+			outputErrorMsg(w, http.StatusBadRequest, "カード情報に誤りがあります")
+		case "fail":
+			outputErrorMsg(w, http.StatusBadRequest, "カードの残高が足りません")
+		default:
+			outputErrorMsg(w, http.StatusBadRequest, "想定外のエラー")
+		}
 		tx.Rollback()
 		return
 	}
 
+	scr := <-scrCh
+	if scr == nil {
+		outputErrorMsg(w, http.StatusInternalServerError, "failed to request to shipment service")
+		tx.Rollback()
+		return
+	}
 	_, err = tx.Exec("INSERT INTO `shippings` (`transaction_evidence_id`, `status`, `item_id`, `reserve_id`, `img_binary`) VALUES (?,?,?,?,?)",
 		transactionEvidenceID,
 		ShippingsStatusInitial,
@@ -1649,7 +1627,6 @@ func postBuy(w http.ResponseWriter, r *http.Request) {
 	)
 	if err != nil {
 		log.Print(err)
-
 		outputErrorMsg(w, http.StatusInternalServerError, "db error")
 		tx.Rollback()
 		return
@@ -2135,7 +2112,7 @@ func postSell(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	category, err := getCategoryByID(dbx, categoryID)
+	category, err := getCategoryByID(categoryID)
 	if err != nil || category.ParentID == 0 {
 		log.Print(categoryID, category)
 		outputErrorMsg(w, http.StatusBadRequest, "Incorrect category ID")
@@ -2228,7 +2205,7 @@ func postSell(w http.ResponseWriter, r *http.Request) {
 	}
 	tx.Commit()
 
-	mapItemID[itemID] = true
+	mapItemID[itemID] = seller.ID
 
 	w.Header().Set("Content-Type", "application/json;charset=utf-8")
 	json.NewEncoder(w).Encode(resSell{ID: itemID})
