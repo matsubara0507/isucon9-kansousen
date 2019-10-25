@@ -1117,8 +1117,8 @@ func getTransactions(w http.ResponseWriter, r *http.Request) {
 			if item.Status == ItemStatusSoldOut {
 				itemDetail.ShippingStatus = ShippingsStatusDone
 			} else {
-				shipping := Shipping{}
-				err = tx.Get(&shipping, "SELECT * FROM `shippings` WHERE `transaction_evidence_id` = ?", transactionEvidence.ID)
+				var reserveID string
+				err = tx.Get(&reserveID, "SELECT `reserve_id` FROM `shippings` WHERE `transaction_evidence_id` = ?", transactionEvidence.ID)
 				if err == sql.ErrNoRows {
 					outputErrorMsg(w, http.StatusNotFound, "shipping not found")
 					tx.Rollback()
@@ -1131,7 +1131,7 @@ func getTransactions(w http.ResponseWriter, r *http.Request) {
 					return
 				}
 				ssr, err := APIShipmentStatus(getShipmentServiceURL(), &APIShipmentStatusReq{
-					ReserveID: shipping.ReserveID,
+					ReserveID: reserveID,
 				})
 				if err != nil {
 					log.Print(err)
@@ -1240,8 +1240,8 @@ func getItem(w http.ResponseWriter, r *http.Request) {
 		}
 
 		if transactionEvidence.ID > 0 {
-			shipping := Shipping{}
-			err = dbx.Get(&shipping, "SELECT * FROM `shippings` WHERE `transaction_evidence_id` = ?", transactionEvidence.ID)
+			var status string
+			err = dbx.Get(&status, "SELECT `status` FROM `shippings` WHERE `transaction_evidence_id` = ?", transactionEvidence.ID)
 			if err == sql.ErrNoRows {
 				outputErrorMsg(w, http.StatusNotFound, "shipping not found")
 				return
@@ -1254,7 +1254,7 @@ func getItem(w http.ResponseWriter, r *http.Request) {
 
 			itemDetail.TransactionEvidenceID = transactionEvidence.ID
 			itemDetail.TransactionEvidenceStatus = transactionEvidence.Status
-			itemDetail.ShippingStatus = shipping.Status
+			itemDetail.ShippingStatus = status
 		}
 	}
 
@@ -1693,8 +1693,8 @@ func postShip(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	shipping := Shipping{}
-	err = tx.Get(&shipping, "SELECT * FROM `shippings` WHERE `transaction_evidence_id` = ? FOR UPDATE", transactionEvidence.ID)
+	var reserveID string
+	err = tx.Get(&reserveID, "SELECT `reserve_id` FROM `shippings` WHERE `transaction_evidence_id` = ? FOR UPDATE", transactionEvidence.ID)
 	if err == sql.ErrNoRows {
 		outputErrorMsg(w, http.StatusNotFound, "shippings not found")
 		tx.Rollback()
@@ -1708,7 +1708,7 @@ func postShip(w http.ResponseWriter, r *http.Request) {
 	}
 
 	img, err := APIShipmentRequest(getShipmentServiceURL(), &APIShipmentRequestReq{
-		ReserveID: shipping.ReserveID,
+		ReserveID: reserveID,
 	})
 	if err != nil {
 		log.Print(err)
@@ -1736,7 +1736,7 @@ func postShip(w http.ResponseWriter, r *http.Request) {
 
 	rps := resPostShip{
 		Path:      fmt.Sprintf("/transactions/%d.png", transactionEvidence.ID),
-		ReserveID: shipping.ReserveID,
+		ReserveID: reserveID,
 	}
 	json.NewEncoder(w).Encode(rps)
 }
@@ -1824,8 +1824,8 @@ func postShipDone(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	shipping := Shipping{}
-	err = tx.Get(&shipping, "SELECT * FROM `shippings` WHERE `transaction_evidence_id` = ? FOR UPDATE", transactionEvidence.ID)
+	var reserveID string
+	err = tx.Get(&reserveID, "SELECT `reserve_id` FROM `shippings` WHERE `transaction_evidence_id` = ? FOR UPDATE", transactionEvidence.ID)
 	if err == sql.ErrNoRows {
 		outputErrorMsg(w, http.StatusNotFound, "shippings not found")
 		tx.Rollback()
@@ -1839,7 +1839,7 @@ func postShipDone(w http.ResponseWriter, r *http.Request) {
 	}
 
 	ssr, err := APIShipmentStatus(getShipmentServiceURL(), &APIShipmentStatusReq{
-		ReserveID: shipping.ReserveID,
+		ReserveID: reserveID,
 	})
 	if err != nil {
 		log.Print(err)
@@ -1969,8 +1969,8 @@ func postComplete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	shipping := Shipping{}
-	err = tx.Get(&shipping, "SELECT * FROM `shippings` WHERE `transaction_evidence_id` = ? FOR UPDATE", transactionEvidence.ID)
+	var reserveID string
+	err = tx.Get(&reserveID, "SELECT `reserve_id` FROM `shippings` WHERE `transaction_evidence_id` = ? FOR UPDATE", transactionEvidence.ID)
 	if err != nil {
 		log.Print(err)
 		outputErrorMsg(w, http.StatusInternalServerError, "db error")
@@ -1979,7 +1979,7 @@ func postComplete(w http.ResponseWriter, r *http.Request) {
 	}
 
 	ssr, err := APIShipmentStatus(getShipmentServiceURL(), &APIShipmentStatusReq{
-		ReserveID: shipping.ReserveID,
+		ReserveID: reserveID,
 	})
 	if err != nil {
 		log.Print(err)
