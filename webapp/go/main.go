@@ -62,11 +62,11 @@ const (
 )
 
 var (
-	templates  *template.Template
-	dbx        *sqlx.DB
-	store      sessions.Store
-	categories [MaxCategoryID + 1]Category
-	paymentServiceUrl string
+	templates          *template.Template
+	dbx                *sqlx.DB
+	store              sessions.Store
+	categories         [MaxCategoryID + 1]Category
+	paymentServiceUrl  string
 	shipmentServiceUrl string
 )
 
@@ -458,7 +458,6 @@ func getUser(r *http.Request) (user User, errCode int, errMsg string) {
 
 	return user, http.StatusOK, ""
 }
-
 
 func getUserID(r *http.Request) (userID int64, ok bool) {
 	session := getSession(r)
