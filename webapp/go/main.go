@@ -1494,8 +1494,10 @@ func postBuy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	tx := dbx.MustBegin()
+
 	targetItem := Item{}
-	err = dbx.Get(&targetItem, "SELECT * FROM `items` WHERE `id` = ? AND `status` = ? FOR UPDATE", rb.ItemID, ItemStatusOnSale)
+	err = tx.Get(&targetItem, "SELECT * FROM `items` WHERE `id` = ? AND `status` = ? FOR UPDATE", rb.ItemID, ItemStatusOnSale)
 	if err == sql.ErrNoRows {
 		outputErrorMsg(w, http.StatusForbidden, "item is not for sale")
 		return
@@ -1533,7 +1535,7 @@ func postBuy(w http.ResponseWriter, r *http.Request) {
 	scrCh := make(chan *APIShipmentCreateRes)
 	go func() {
 		seller := User{}
-		err = dbx.Get(&seller, "SELECT * FROM `users` WHERE `id` = ?", sellerID)
+		err = tx.Get(&seller, "SELECT * FROM `users` WHERE `id` = ?", sellerID)
 		if err != nil {
 			log.Print(err)
 			scrCh <- nil
@@ -1554,7 +1556,6 @@ func postBuy(w http.ResponseWriter, r *http.Request) {
 		}
 	}()
 
-	tx := dbx.MustBegin()
 	result, err := tx.Exec("INSERT INTO `transaction_evidences` (`seller_id`, `buyer_id`, `status`, `item_id`, `item_price`) VALUES (?, ?, ?, ?, ?)",
 		targetItem.SellerID,
 		buyer.ID,
