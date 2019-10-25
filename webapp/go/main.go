@@ -136,34 +136,34 @@ type ItemDetail struct {
 }
 
 type TransactionEvidence struct {
-	ID                 int64     `json:"id" db:"id"`
-	SellerID           int64     `json:"seller_id" db:"seller_id"`
-	BuyerID            int64     `json:"buyer_id" db:"buyer_id"`
-	Status             string    `json:"status" db:"status"`
-	ItemID             int64     `json:"item_id" db:"item_id"`
+	ID       int64  `json:"id" db:"id"`
+	SellerID int64  `json:"seller_id" db:"seller_id"`
+	BuyerID  int64  `json:"buyer_id" db:"buyer_id"`
+	Status   string `json:"status" db:"status"`
+	ItemID   int64  `json:"item_id" db:"item_id"`
 	//ItemName           string    `json:"item_name" db:"item_name"`
-	//ItemPrice          int       `json:"item_price" db:"item_price"`
+	ItemPrice int `json:"item_price" db:"item_price"`
 	//ItemDescription    string    `json:"item_description" db:"item_description"`
 	//ItemCategoryID     int       `json:"item_category_id" db:"item_category_id"`
 	//ItemRootCategoryID int       `json:"item_root_category_id" db:"item_root_category_id"`
-	CreatedAt          time.Time `json:"-" db:"created_at"`
-	UpdatedAt          time.Time `json:"-" db:"updated_at"`
+	CreatedAt time.Time `json:"-" db:"created_at"`
+	UpdatedAt time.Time `json:"-" db:"updated_at"`
 }
 
 type Shipping struct {
-	TransactionEvidenceID int64     `json:"transaction_evidence_id" db:"transaction_evidence_id"`
-	Status                string    `json:"status" db:"status"`
+	TransactionEvidenceID int64  `json:"transaction_evidence_id" db:"transaction_evidence_id"`
+	Status                string `json:"status" db:"status"`
 	//ItemName              string    `json:"item_name" db:"item_name"`
-	ItemID                int64     `json:"item_id" db:"item_id"`
-	ReserveID             string    `json:"reserve_id" db:"reserve_id"`
+	ItemID    int64  `json:"item_id" db:"item_id"`
+	ReserveID string `json:"reserve_id" db:"reserve_id"`
 	//ReserveTime           int64     `json:"reserve_time" db:"reserve_time"`
 	//ToAddress             string    `json:"to_address" db:"to_address"`
 	//ToName                string    `json:"to_name" db:"to_name"`
 	//FromAddress           string    `json:"from_address" db:"from_address"`
 	//FromName              string    `json:"from_name" db:"from_name"`
-	ImgBinary             []byte    `json:"-" db:"img_binary"`
-	CreatedAt             time.Time `json:"-" db:"created_at"`
-	UpdatedAt             time.Time `json:"-" db:"updated_at"`
+	ImgBinary []byte    `json:"-" db:"img_binary"`
+	CreatedAt time.Time `json:"-" db:"created_at"`
+	UpdatedAt time.Time `json:"-" db:"updated_at"`
 }
 
 type Category struct {
@@ -1520,11 +1520,12 @@ func postBuy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	result, err := tx.Exec("INSERT INTO `transaction_evidences` (`seller_id`, `buyer_id`, `status`, `item_id`) VALUES (?, ?, ?, ?)",
+	result, err := tx.Exec("INSERT INTO `transaction_evidences` (`seller_id`, `buyer_id`, `status`, `item_id`, `item_price`) VALUES (?, ?, ?, ?, ?)",
 		targetItem.SellerID,
 		buyer.ID,
 		TransactionEvidenceStatusWaitShipping,
 		targetItem.ID,
+		targetItem.Price,
 	)
 	if err != nil {
 		log.Print(err)

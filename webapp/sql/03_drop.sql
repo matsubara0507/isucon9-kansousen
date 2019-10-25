@@ -2,7 +2,7 @@ use `isucari`;
 
 ALTER TABLE `transaction_evidences`
     DROP COLUMN `item_name`,
-    DROP COLUMN `item_price`,
+    -- DROP COLUMN `item_price`,
     DROP COLUMN `item_description`,
     DROP COLUMN `item_category_id`,
     DROP COLUMN `item_root_category_id`;
