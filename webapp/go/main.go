@@ -455,6 +455,23 @@ func getUser(r *http.Request) (user User, errCode int, errMsg string) {
 	return user, http.StatusOK, ""
 }
 
+
+func getUserID(r *http.Request) (userID int64, ok bool) {
+	session := getSession(r)
+
+	val, ok := session.Values["user_id"]
+	if !ok {
+		return userID, false
+	}
+
+	userID, ok = val.(int64)
+	if !ok {
+		return userID, false
+	}
+
+	return
+}
+
 func getUserSimpleByID(q sqlx.Queryer, userID int64) (userSimple UserSimple, err error) {
 	user := User{}
 	err = sqlx.Get(q, &user, "SELECT * FROM `users` WHERE `id` = ?", userID)
@@ -1166,9 +1183,9 @@ func getItem(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	user, errCode, errMsg := getUser(r)
-	if errMsg != "" {
-		outputErrorMsg(w, errCode, errMsg)
+	userID, ok := getUserID(r)
+	if !ok {
+		outputErrorMsg(w, http.StatusNotFound, "no session")
 		return
 	}
 
@@ -1190,9 +1207,15 @@ func getItem(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	seller, err := getUserSimpleByID(dbx, item.SellerID)
+	mapUser, err := getUsersByIDs([]int64{item.SellerID, item.BuyerID})
 	if err != nil {
-		outputErrorMsg(w, http.StatusNotFound, "seller not found")
+		outputErrorMsg(w, http.StatusNotFound, "user not found")
+		return
+	}
+
+	seller, ok := mapUser[item.SellerID]
+	if !ok {
+		outputErrorMsg(w, http.StatusNotFound, "ussellerer not found")
 		return
 	}
 
@@ -1215,9 +1238,9 @@ func getItem(w http.ResponseWriter, r *http.Request) {
 		CreatedAt: item.CreatedAt.Unix(),
 	}
 
-	if (user.ID == item.SellerID || user.ID == item.BuyerID) && item.BuyerID != 0 {
-		buyer, err := getUserSimpleByID(dbx, item.BuyerID)
-		if err != nil {
+	if (userID == item.SellerID || userID == item.BuyerID) && item.BuyerID != 0 {
+		buyer, ok := mapUser[item.BuyerID]
+		if !ok {
 			outputErrorMsg(w, http.StatusNotFound, "buyer not found")
 			return
 		}
