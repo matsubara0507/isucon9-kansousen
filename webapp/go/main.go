@@ -1176,16 +1176,24 @@ func getTransactions(w http.ResponseWriter, r *http.Request) {
 }
 
 func getItem(w http.ResponseWriter, r *http.Request) {
+	badHttpStatusCh := make(chan int)
+	userIDCh := make(chan int64)
+
+	// get user_id
+	go func() {
+		userID, ok := getUserID(r)
+		if !ok {
+			badHttpStatusCh <- http.StatusNotFound
+		} else {
+			userIDCh <- userID
+		}
+		return
+	}()
+
 	itemIDStr := pat.Param(r, "item_id")
 	itemID, err := strconv.ParseInt(itemIDStr, 10, 64)
 	if err != nil || itemID <= 0 {
 		outputErrorMsg(w, http.StatusBadRequest, "incorrect item id")
-		return
-	}
-
-	userID, ok := getUserID(r)
-	if !ok {
-		outputErrorMsg(w, http.StatusNotFound, "no session")
 		return
 	}
 
@@ -1236,6 +1244,14 @@ func getItem(w http.ResponseWriter, r *http.Request) {
 		// ShippingStatus
 		Category:  &category,
 		CreatedAt: item.CreatedAt.Unix(),
+	}
+
+	var userID int64
+	select {
+	case userID = <-userIDCh:
+	case badHttpStatusCh := <-badHttpStatusCh:
+		outputErrorMsg(w, badHttpStatusCh, "no session")
+		return
 	}
 
 	if (userID == item.SellerID || userID == item.BuyerID) && item.BuyerID != 0 {
