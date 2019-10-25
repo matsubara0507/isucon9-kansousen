@@ -66,6 +66,8 @@ var (
 	dbx        *sqlx.DB
 	store      sessions.Store
 	categories [MaxCategoryID + 1]Category
+	paymentServiceUrl string
+	shipmentServiceUrl string
 )
 
 type Config struct {
@@ -281,6 +283,8 @@ func init() {
 	))
 
 	categories = initCategories()
+	paymentServiceUrl = DefaultPaymentServiceURL
+	shipmentServiceUrl = DefaultShipmentServiceURL
 }
 
 func initCategories() [MaxCategoryID + 1]Category {
@@ -555,19 +559,11 @@ func getConfigByName(name string) (string, error) {
 }
 
 func getPaymentServiceURL() string {
-	val, _ := getConfigByName("payment_service_url")
-	if val == "" {
-		return DefaultPaymentServiceURL
-	}
-	return val
+	return paymentServiceUrl
 }
 
 func getShipmentServiceURL() string {
-	val, _ := getConfigByName("shipment_service_url")
-	if val == "" {
-		return DefaultShipmentServiceURL
-	}
-	return val
+	return shipmentServiceUrl
 }
 
 func getIndex(w http.ResponseWriter, r *http.Request) {
@@ -602,6 +598,8 @@ func postInitialize(w http.ResponseWriter, r *http.Request) {
 		outputErrorMsg(w, http.StatusInternalServerError, "db error")
 		return
 	}
+	paymentServiceUrl = ri.PaymentServiceURL
+
 	_, err = dbx.Exec(
 		"INSERT INTO `configs` (`name`, `val`) VALUES (?, ?) ON DUPLICATE KEY UPDATE `val` = VALUES(`val`)",
 		"shipment_service_url",
@@ -612,6 +610,7 @@ func postInitialize(w http.ResponseWriter, r *http.Request) {
 		outputErrorMsg(w, http.StatusInternalServerError, "db error")
 		return
 	}
+	shipmentServiceUrl = ri.ShipmentServiceURL
 
 	res := resInitialize{
 		// キャンペーン実施時には還元率の設定返す。詳しくはマニュアルを参照のこと。
@@ -1223,7 +1222,7 @@ func getItem(w http.ResponseWriter, r *http.Request) {
 
 	seller, ok := mapUser[item.SellerID]
 	if !ok {
-		outputErrorMsg(w, http.StatusNotFound, "ussellerer not found")
+		outputErrorMsg(w, http.StatusNotFound, "seller not found")
 		return
 	}
 
