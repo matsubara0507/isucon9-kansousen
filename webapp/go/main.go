@@ -455,6 +455,23 @@ func getUser(r *http.Request) (user User, errCode int, errMsg string) {
 	return user, http.StatusOK, ""
 }
 
+
+func getUserID(r *http.Request) (userID int64, ok bool) {
+	session := getSession(r)
+
+	val, ok := session.Values["user_id"]
+	if !ok {
+		return userID, false
+	}
+
+	userID, ok = val.(int64)
+	if !ok {
+		return userID, false
+	}
+
+	return
+}
+
 func getUserSimpleByID(q sqlx.Queryer, userID int64) (userSimple UserSimple, err error) {
 	user := User{}
 	err = sqlx.Get(q, &user, "SELECT * FROM `users` WHERE `id` = ?", userID)
@@ -1159,16 +1176,24 @@ func getTransactions(w http.ResponseWriter, r *http.Request) {
 }
 
 func getItem(w http.ResponseWriter, r *http.Request) {
+	badHttpStatusCh := make(chan int)
+	userIDCh := make(chan int64)
+
+	// get user_id
+	go func() {
+		userID, ok := getUserID(r)
+		if !ok {
+			badHttpStatusCh <- http.StatusNotFound
+		} else {
+			userIDCh <- userID
+		}
+		return
+	}()
+
 	itemIDStr := pat.Param(r, "item_id")
 	itemID, err := strconv.ParseInt(itemIDStr, 10, 64)
 	if err != nil || itemID <= 0 {
 		outputErrorMsg(w, http.StatusBadRequest, "incorrect item id")
-		return
-	}
-
-	user, errCode, errMsg := getUser(r)
-	if errMsg != "" {
-		outputErrorMsg(w, errCode, errMsg)
 		return
 	}
 
@@ -1190,9 +1215,15 @@ func getItem(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	seller, err := getUserSimpleByID(dbx, item.SellerID)
+	mapUser, err := getUsersByIDs([]int64{item.SellerID, item.BuyerID})
 	if err != nil {
-		outputErrorMsg(w, http.StatusNotFound, "seller not found")
+		outputErrorMsg(w, http.StatusNotFound, "user not found")
+		return
+	}
+
+	seller, ok := mapUser[item.SellerID]
+	if !ok {
+		outputErrorMsg(w, http.StatusNotFound, "ussellerer not found")
 		return
 	}
 
@@ -1215,9 +1246,17 @@ func getItem(w http.ResponseWriter, r *http.Request) {
 		CreatedAt: item.CreatedAt.Unix(),
 	}
 
-	if (user.ID == item.SellerID || user.ID == item.BuyerID) && item.BuyerID != 0 {
-		buyer, err := getUserSimpleByID(dbx, item.BuyerID)
-		if err != nil {
+	var userID int64
+	select {
+	case userID = <-userIDCh:
+	case badHttpStatusCh := <-badHttpStatusCh:
+		outputErrorMsg(w, badHttpStatusCh, "no session")
+		return
+	}
+
+	if (userID == item.SellerID || userID == item.BuyerID) && item.BuyerID != 0 {
+		buyer, ok := mapUser[item.BuyerID]
+		if !ok {
 			outputErrorMsg(w, http.StatusNotFound, "buyer not found")
 			return
 		}
