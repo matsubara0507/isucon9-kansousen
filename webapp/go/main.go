@@ -136,34 +136,34 @@ type ItemDetail struct {
 }
 
 type TransactionEvidence struct {
-	ID                 int64     `json:"id" db:"id"`
-	SellerID           int64     `json:"seller_id" db:"seller_id"`
-	BuyerID            int64     `json:"buyer_id" db:"buyer_id"`
-	Status             string    `json:"status" db:"status"`
-	ItemID             int64     `json:"item_id" db:"item_id"`
-	ItemName           string    `json:"item_name" db:"item_name"`
-	ItemPrice          int       `json:"item_price" db:"item_price"`
-	ItemDescription    string    `json:"item_description" db:"item_description"`
-	ItemCategoryID     int       `json:"item_category_id" db:"item_category_id"`
-	ItemRootCategoryID int       `json:"item_root_category_id" db:"item_root_category_id"`
-	CreatedAt          time.Time `json:"-" db:"created_at"`
-	UpdatedAt          time.Time `json:"-" db:"updated_at"`
+	ID       int64  `json:"id" db:"id"`
+	SellerID int64  `json:"seller_id" db:"seller_id"`
+	BuyerID  int64  `json:"buyer_id" db:"buyer_id"`
+	Status   string `json:"status" db:"status"`
+	ItemID   int64  `json:"item_id" db:"item_id"`
+	//ItemName           string    `json:"item_name" db:"item_name"`
+	ItemPrice int `json:"item_price" db:"item_price"`
+	//ItemDescription    string    `json:"item_description" db:"item_description"`
+	//ItemCategoryID     int       `json:"item_category_id" db:"item_category_id"`
+	//ItemRootCategoryID int       `json:"item_root_category_id" db:"item_root_category_id"`
+	CreatedAt time.Time `json:"-" db:"created_at"`
+	UpdatedAt time.Time `json:"-" db:"updated_at"`
 }
 
 type Shipping struct {
-	TransactionEvidenceID int64     `json:"transaction_evidence_id" db:"transaction_evidence_id"`
-	Status                string    `json:"status" db:"status"`
-	ItemName              string    `json:"item_name" db:"item_name"`
-	ItemID                int64     `json:"item_id" db:"item_id"`
-	ReserveID             string    `json:"reserve_id" db:"reserve_id"`
-	ReserveTime           int64     `json:"reserve_time" db:"reserve_time"`
-	ToAddress             string    `json:"to_address" db:"to_address"`
-	ToName                string    `json:"to_name" db:"to_name"`
-	FromAddress           string    `json:"from_address" db:"from_address"`
-	FromName              string    `json:"from_name" db:"from_name"`
-	ImgBinary             []byte    `json:"-" db:"img_binary"`
-	CreatedAt             time.Time `json:"-" db:"created_at"`
-	UpdatedAt             time.Time `json:"-" db:"updated_at"`
+	TransactionEvidenceID int64  `json:"transaction_evidence_id" db:"transaction_evidence_id"`
+	Status                string `json:"status" db:"status"`
+	//ItemName              string    `json:"item_name" db:"item_name"`
+	ItemID    int64  `json:"item_id" db:"item_id"`
+	ReserveID string `json:"reserve_id" db:"reserve_id"`
+	//ReserveTime           int64     `json:"reserve_time" db:"reserve_time"`
+	//ToAddress             string    `json:"to_address" db:"to_address"`
+	//ToName                string    `json:"to_name" db:"to_name"`
+	//FromAddress           string    `json:"from_address" db:"from_address"`
+	//FromName              string    `json:"from_name" db:"from_name"`
+	ImgBinary []byte    `json:"-" db:"img_binary"`
+	CreatedAt time.Time `json:"-" db:"created_at"`
+	UpdatedAt time.Time `json:"-" db:"updated_at"`
 }
 
 type Category struct {
@@ -884,11 +884,8 @@ func getUserItems(w http.ResponseWriter, r *http.Request) {
 	if itemID > 0 && createdAt > 0 {
 		// paging
 		err := dbx.Select(&items,
-			"SELECT * FROM `items` WHERE `seller_id` = ? AND `status` IN (?,?,?) AND (`created_at` < ?  OR (`created_at` <= ? AND `id` < ?)) ORDER BY `created_at` DESC, `id` DESC LIMIT ?",
+			"SELECT * FROM `items` WHERE `seller_id` = ? AND (`created_at` < ?  OR (`created_at` <= ? AND `id` < ?)) ORDER BY `created_at` DESC, `id` DESC LIMIT ?",
 			userSimple.ID,
-			ItemStatusOnSale,
-			ItemStatusTrading,
-			ItemStatusSoldOut,
 			time.Unix(createdAt, 0),
 			time.Unix(createdAt, 0),
 			itemID,
@@ -902,11 +899,8 @@ func getUserItems(w http.ResponseWriter, r *http.Request) {
 	} else {
 		// 1st page
 		err := dbx.Select(&items,
-			"SELECT * FROM `items` WHERE `seller_id` = ? AND `status` IN (?,?,?) ORDER BY `created_at` DESC, `id` DESC LIMIT ?",
+			"SELECT * FROM `items` WHERE `seller_id` = ? ORDER BY `created_at` DESC, `id` DESC LIMIT ?",
 			userSimple.ID,
-			ItemStatusOnSale,
-			ItemStatusTrading,
-			ItemStatusSoldOut,
 			ItemsPerPage+1,
 		)
 		if err != nil {
@@ -1117,8 +1111,8 @@ func getTransactions(w http.ResponseWriter, r *http.Request) {
 			if item.Status == ItemStatusSoldOut {
 				itemDetail.ShippingStatus = ShippingsStatusDone
 			} else {
-				shipping := Shipping{}
-				err = tx.Get(&shipping, "SELECT * FROM `shippings` WHERE `transaction_evidence_id` = ?", transactionEvidence.ID)
+				var reserveID string
+				err = tx.Get(&reserveID, "SELECT `reserve_id` FROM `shippings` WHERE `transaction_evidence_id` = ?", transactionEvidence.ID)
 				if err == sql.ErrNoRows {
 					outputErrorMsg(w, http.StatusNotFound, "shipping not found")
 					tx.Rollback()
@@ -1131,7 +1125,7 @@ func getTransactions(w http.ResponseWriter, r *http.Request) {
 					return
 				}
 				ssr, err := APIShipmentStatus(getShipmentServiceURL(), &APIShipmentStatusReq{
-					ReserveID: shipping.ReserveID,
+					ReserveID: reserveID,
 				})
 				if err != nil {
 					log.Print(err)
@@ -1240,8 +1234,8 @@ func getItem(w http.ResponseWriter, r *http.Request) {
 		}
 
 		if transactionEvidence.ID > 0 {
-			shipping := Shipping{}
-			err = dbx.Get(&shipping, "SELECT * FROM `shippings` WHERE `transaction_evidence_id` = ?", transactionEvidence.ID)
+			var status string
+			err = dbx.Get(&status, "SELECT `status` FROM `shippings` WHERE `transaction_evidence_id` = ?", transactionEvidence.ID)
 			if err == sql.ErrNoRows {
 				outputErrorMsg(w, http.StatusNotFound, "shipping not found")
 				return
@@ -1254,7 +1248,7 @@ func getItem(w http.ResponseWriter, r *http.Request) {
 
 			itemDetail.TransactionEvidenceID = transactionEvidence.ID
 			itemDetail.TransactionEvidenceStatus = transactionEvidence.Status
-			itemDetail.ShippingStatus = shipping.Status
+			itemDetail.ShippingStatus = status
 		}
 	}
 
@@ -1511,7 +1505,7 @@ func postBuy(w http.ResponseWriter, r *http.Request) {
 		}
 	}()
 
-	category, err := getCategoryByID(tx, targetItem.CategoryID)
+	_, err = getCategoryByID(tx, targetItem.CategoryID)
 	if err != nil {
 		log.Print(err)
 
@@ -1520,16 +1514,12 @@ func postBuy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	result, err := tx.Exec("INSERT INTO `transaction_evidences` (`seller_id`, `buyer_id`, `status`, `item_id`, `item_name`, `item_price`, `item_description`,`item_category_id`,`item_root_category_id`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+	result, err := tx.Exec("INSERT INTO `transaction_evidences` (`seller_id`, `buyer_id`, `status`, `item_id`, `item_price`) VALUES (?, ?, ?, ?, ?)",
 		targetItem.SellerID,
 		buyer.ID,
 		TransactionEvidenceStatusWaitShipping,
 		targetItem.ID,
-		targetItem.Name,
 		targetItem.Price,
-		targetItem.Description,
-		category.ID,
-		category.ParentID,
 	)
 	if err != nil {
 		log.Print(err)
@@ -1593,17 +1583,11 @@ func postBuy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	_, err = tx.Exec("INSERT INTO `shippings` (`transaction_evidence_id`, `status`, `item_name`, `item_id`, `reserve_id`, `reserve_time`, `to_address`, `to_name`, `from_address`, `from_name`, `img_binary`) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+	_, err = tx.Exec("INSERT INTO `shippings` (`transaction_evidence_id`, `status`, `item_id`, `reserve_id`, `img_binary`) VALUES (?,?,?,?,?)",
 		transactionEvidenceID,
 		ShippingsStatusInitial,
-		targetItem.Name,
 		targetItem.ID,
 		scr.ReserveID,
-		scr.ReserveTime,
-		buyer.Address,
-		buyer.AccountName,
-		seller.Address,
-		seller.AccountName,
 		"",
 	)
 	if err != nil {
@@ -1703,8 +1687,8 @@ func postShip(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	shipping := Shipping{}
-	err = tx.Get(&shipping, "SELECT * FROM `shippings` WHERE `transaction_evidence_id` = ? FOR UPDATE", transactionEvidence.ID)
+	var reserveID string
+	err = tx.Get(&reserveID, "SELECT `reserve_id` FROM `shippings` WHERE `transaction_evidence_id` = ? FOR UPDATE", transactionEvidence.ID)
 	if err == sql.ErrNoRows {
 		outputErrorMsg(w, http.StatusNotFound, "shippings not found")
 		tx.Rollback()
@@ -1718,7 +1702,7 @@ func postShip(w http.ResponseWriter, r *http.Request) {
 	}
 
 	img, err := APIShipmentRequest(getShipmentServiceURL(), &APIShipmentRequestReq{
-		ReserveID: shipping.ReserveID,
+		ReserveID: reserveID,
 	})
 	if err != nil {
 		log.Print(err)
@@ -1746,7 +1730,7 @@ func postShip(w http.ResponseWriter, r *http.Request) {
 
 	rps := resPostShip{
 		Path:      fmt.Sprintf("/transactions/%d.png", transactionEvidence.ID),
-		ReserveID: shipping.ReserveID,
+		ReserveID: reserveID,
 	}
 	json.NewEncoder(w).Encode(rps)
 }
@@ -1834,8 +1818,8 @@ func postShipDone(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	shipping := Shipping{}
-	err = tx.Get(&shipping, "SELECT * FROM `shippings` WHERE `transaction_evidence_id` = ? FOR UPDATE", transactionEvidence.ID)
+	var reserveID string
+	err = tx.Get(&reserveID, "SELECT `reserve_id` FROM `shippings` WHERE `transaction_evidence_id` = ? FOR UPDATE", transactionEvidence.ID)
 	if err == sql.ErrNoRows {
 		outputErrorMsg(w, http.StatusNotFound, "shippings not found")
 		tx.Rollback()
@@ -1849,7 +1833,7 @@ func postShipDone(w http.ResponseWriter, r *http.Request) {
 	}
 
 	ssr, err := APIShipmentStatus(getShipmentServiceURL(), &APIShipmentStatusReq{
-		ReserveID: shipping.ReserveID,
+		ReserveID: reserveID,
 	})
 	if err != nil {
 		log.Print(err)
@@ -1979,8 +1963,8 @@ func postComplete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	shipping := Shipping{}
-	err = tx.Get(&shipping, "SELECT * FROM `shippings` WHERE `transaction_evidence_id` = ? FOR UPDATE", transactionEvidence.ID)
+	var reserveID string
+	err = tx.Get(&reserveID, "SELECT `reserve_id` FROM `shippings` WHERE `transaction_evidence_id` = ? FOR UPDATE", transactionEvidence.ID)
 	if err != nil {
 		log.Print(err)
 		outputErrorMsg(w, http.StatusInternalServerError, "db error")
@@ -1989,7 +1973,7 @@ func postComplete(w http.ResponseWriter, r *http.Request) {
 	}
 
 	ssr, err := APIShipmentStatus(getShipmentServiceURL(), &APIShipmentStatusReq{
-		ReserveID: shipping.ReserveID,
+		ReserveID: reserveID,
 	})
 	if err != nil {
 		log.Print(err)
