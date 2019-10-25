@@ -1500,11 +1500,13 @@ func postBuy(w http.ResponseWriter, r *http.Request) {
 	err = tx.Get(&targetItem, "SELECT * FROM `items` WHERE `id` = ? AND `status` = ? FOR UPDATE", rb.ItemID, ItemStatusOnSale)
 	if err == sql.ErrNoRows {
 		outputErrorMsg(w, http.StatusForbidden, "item is not for sale")
+		tx.Rollback()
 		return
 	}
 	if err != nil {
 		log.Print(err)
 		outputErrorMsg(w, http.StatusInternalServerError, "db error")
+		tx.Rollback()
 		return
 	}
 	_, err = getCategoryByID(targetItem.CategoryID)
@@ -1512,6 +1514,7 @@ func postBuy(w http.ResponseWriter, r *http.Request) {
 		log.Print(err)
 
 		outputErrorMsg(w, http.StatusInternalServerError, "category id error")
+		tx.Rollback()
 		return
 	}
 
