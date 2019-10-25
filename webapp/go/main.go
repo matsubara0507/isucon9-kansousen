@@ -68,6 +68,7 @@ var (
 	categories         [MaxCategoryID + 1]Category
 	paymentServiceUrl  string
 	shipmentServiceUrl string
+	mapItemID          map[int64]bool
 )
 
 type Config struct {
@@ -285,6 +286,7 @@ func init() {
 	categories = initCategories()
 	paymentServiceUrl = DefaultPaymentServiceURL
 	shipmentServiceUrl = DefaultShipmentServiceURL
+	mapItemID = map[int64]bool{}
 }
 
 func initCategories() [MaxCategoryID + 1]Category {
@@ -340,6 +342,18 @@ func initCategories() [MaxCategoryID + 1]Category {
 	}
 
 	return cs
+}
+
+func initMapItemID() error {
+	var itemIDs []int64
+	err := dbx.Get(&itemIDs, "SELECT `id` FROM `items`")
+	if err != nil {
+		return err
+	}
+	for _, id := range itemIDs {
+		mapItemID[id] = true
+	}
+	return nil
 }
 
 func main() {
@@ -584,6 +598,12 @@ func postInitialize(w http.ResponseWriter, r *http.Request) {
 	cmd.Run()
 	if err != nil {
 		outputErrorMsg(w, http.StatusInternalServerError, "exec init.sh error")
+		return
+	}
+
+	err = initMapItemID()
+	if err != nil {
+		outputErrorMsg(w, http.StatusInternalServerError, "initialize mapItemID error")
 		return
 	}
 
@@ -2207,6 +2227,8 @@ func postSell(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	tx.Commit()
+
+	mapItemID[itemID] = true
 
 	w.Header().Set("Content-Type", "application/json;charset=utf-8")
 	json.NewEncoder(w).Encode(resSell{ID: itemID})
