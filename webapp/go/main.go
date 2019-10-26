@@ -1051,6 +1051,8 @@ func getNewItemsByUserID(userID, itemID, createdAt int64) (items []Item, err err
 	for rows.Next() {
 		var itemID, sellerID, buyerID int64
 		if err = rows.Scan(&itemID, &sellerID, &buyerID); err != nil {
+			log.Print(err)
+			rows.Close()
 			return
 		}
 		items = append(items, Item{ID: itemID, SellerID: sellerID, BuyerID: buyerID})
@@ -1113,7 +1115,7 @@ func getTransactions(w http.ResponseWriter, r *http.Request) {
 
 	itemsCh := make(chan []Item)
 	go func() {
-		inQuery, inArgs, err := sqlx.In("SELECT * FROM `items` WHERE `item_id` IN (?)", itemIDs)
+		inQuery, inArgs, err := sqlx.In("SELECT * FROM `items` WHERE `id` IN (?) ORDER BY `created_at` DESC, `id` DESC", itemIDs)
 		if err != nil {
 			log.Print(err)
 			itemsCh <- []Item{}
