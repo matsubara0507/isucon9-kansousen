@@ -1022,6 +1022,42 @@ func getUserItems(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(rui)
 }
 
+func getNewItemsByUserID(userID, itemID, createdAt int64) (items []Item, err error) {
+	var rows *sql.Rows
+	if itemID > 0 && createdAt > 0 {
+		rows, err = dbx.Query(
+			"SELECT `id`, `seller_id`, `buyer_id` FROM `items` WHERE (`seller_id` = ? OR `buyer_id` = ?) AND (`created_at` < ?  OR (`created_at` <= ? AND `id` < ?)) ORDER BY `created_at` DESC, `id` DESC LIMIT ?",
+			userID,
+			userID,
+			time.Unix(createdAt, 0),
+			time.Unix(createdAt, 0),
+			itemID,
+			TransactionsPerPage+1,
+		)
+	} else {
+		// 1st page
+		rows, err = dbx.Query(
+			"SELECT `id`, `seller_id`, `buyer_id` FROM `items` WHERE (`seller_id` = ? OR `buyer_id` = ?) ORDER BY `created_at` DESC, `id` DESC LIMIT ?",
+			userID,
+			userID,
+			TransactionsPerPage+1,
+		)
+	}
+
+	if err != nil {
+		return
+	}
+
+	for rows.Next() {
+		var itemID, sellerID, buyerID int64
+		if err = rows.Scan(&itemID, &sellerID, &buyerID); err != nil {
+			return
+		}
+		items = append(items, Item{ID: itemID, SellerID: sellerID, BuyerID: buyerID})
+	}
+	return
+}
+
 func getTransactions(w http.ResponseWriter, r *http.Request) {
 	query := r.URL.Query()
 	itemIDStr := query.Get("item_id")
@@ -1047,48 +1083,20 @@ func getTransactions(w http.ResponseWriter, r *http.Request) {
 
 	userID, ok := getUserID(r)
 	if !ok {
-		outputErrorMsg(w, http.StatusNotFound, "user not found by session")
+		outputErrorMsg(w, http.StatusNotFound, "created_at param error")
 		return
 	}
 
-	tx := dbx.MustBegin()
-	items := []Item{}
-	if itemID > 0 && createdAt > 0 {
-		// paging
-		err := tx.Select(&items,
-			"SELECT * FROM `items` WHERE (`seller_id` = ? OR `buyer_id` = ?) AND (`created_at` < ?  OR (`created_at` <= ? AND `id` < ?)) ORDER BY `created_at` DESC, `id` DESC LIMIT ?",
-			userID,
-			userID,
-			time.Unix(createdAt, 0),
-			time.Unix(createdAt, 0),
-			itemID,
-			TransactionsPerPage+1,
-		)
-		if err != nil {
-			log.Print(err)
-			outputErrorMsg(w, http.StatusInternalServerError, "db error")
-			tx.Rollback()
-			return
-		}
-	} else {
-		// 1st page
-		err := tx.Select(&items,
-			"SELECT * FROM `items` WHERE (`seller_id` = ? OR `buyer_id` = ?) ORDER BY `created_at` DESC, `id` DESC LIMIT ?",
-			userID,
-			userID,
-			TransactionsPerPage+1,
-		)
-		if err != nil {
-			log.Print(err)
-			outputErrorMsg(w, http.StatusInternalServerError, "db error")
-			tx.Rollback()
-			return
-		}
+	// only id, seller_id, buyer_id
+	dumpItems, err := getNewItemsByUserID(userID, itemID, createdAt)
+	if err != nil {
+		outputErrorMsg(w, http.StatusInternalServerError, "get new items error")
+		return
 	}
 
 	mapUsersCh := make(chan map[int64]UserSimple)
 	go func() {
-		mapUsers, err := getUsersByItems(items)
+		mapUsers, err := getUsersByItems(dumpItems)
 		if err != nil {
 			mapUsersCh <- map[int64]UserSimple{}
 		} else {
@@ -1097,9 +1105,30 @@ func getTransactions(w http.ResponseWriter, r *http.Request) {
 	}()
 
 	itemIDs := []int64{}
-	for _, item := range items {
+	for _, item := range dumpItems {
 		itemIDs = append(itemIDs, item.ID)
 	}
+
+	tx := dbx.MustBegin()
+
+	itemsCh := make(chan []Item)
+	go func() {
+		inQuery, inArgs, err := sqlx.In("SELECT * FROM `items` WHERE `item_id` IN (?)", itemIDs)
+		if err != nil {
+			log.Print(err)
+			itemsCh <- []Item{}
+			return
+		}
+
+		var items []Item
+		if err = tx.Select(&items, inQuery, inArgs...); err != nil {
+			log.Print(err)
+			itemsCh <- []Item{}
+			return
+		}
+		itemsCh <- items
+		return
+	}()
 
 	inQuery, inArgs, err := sqlx.In("SELECT * FROM `transaction_evidences` WHERE `item_id` IN (?)", itemIDs)
 	if err != nil {
@@ -1160,6 +1189,7 @@ func getTransactions(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	items := <-itemsCh
 	itemDetails := []ItemDetail{}
 	for _, item := range items {
 		seller, ok := mapUsers[item.SellerID]
