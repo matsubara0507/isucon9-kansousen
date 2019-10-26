@@ -548,6 +548,19 @@ func getBuyersByItems(items []Item) (mapBuyer map[int64]UserSimple, err error) {
 	return getUsersByIDs(buyerIDs)
 }
 
+func getUsersByItems(items []Item) (mapUser map[int64]UserSimple, err error) {
+	mapUserID := map[int64]bool{}
+	for _, item := range items {
+		mapUserID[item.SellerID] = true
+		mapUserID[item.BuyerID] = true
+	}
+	userIDs := []int64{}
+	for k, _ := range mapUserID {
+		userIDs = append(userIDs, k)
+	}
+	return getUsersByIDs(userIDs)
+}
+
 func getUsersByIDs(ids []int64) (mapUser map[int64]UserSimple, err error) {
 	inQuery, inArgs, err := sqlx.In("SELECT * FROM `users` WHERE `id` IN (?)", ids)
 	if err != nil {
@@ -1010,13 +1023,6 @@ func getUserItems(w http.ResponseWriter, r *http.Request) {
 }
 
 func getTransactions(w http.ResponseWriter, r *http.Request) {
-
-	user, errCode, errMsg := getUser(r)
-	if errMsg != "" {
-		outputErrorMsg(w, errCode, errMsg)
-		return
-	}
-
 	query := r.URL.Query()
 	itemIDStr := query.Get("item_id")
 	var err error
@@ -1037,6 +1043,12 @@ func getTransactions(w http.ResponseWriter, r *http.Request) {
 			outputErrorMsg(w, http.StatusBadRequest, "created_at param error")
 			return
 		}
+	}
+
+	user, errCode, errMsg := getUser(r)
+	if errMsg != "" {
+		outputErrorMsg(w, errCode, errMsg)
+		return
 	}
 
 	tx := dbx.MustBegin()
@@ -1074,16 +1086,9 @@ func getTransactions(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	mapSellers, err := getSellersByItems(items)
+	mapUsers, err := getUsersByItems(items)
 	if err != nil {
-		outputErrorMsg(w, http.StatusNotFound, "seller not found")
-		tx.Rollback()
-		return
-	}
-
-	mapBuyers, err := getBuyersByItems(items)
-	if err != nil {
-		outputErrorMsg(w, http.StatusNotFound, "buyer not found")
+		outputErrorMsg(w, http.StatusNotFound, "user not found")
 		tx.Rollback()
 		return
 	}
@@ -1117,7 +1122,7 @@ func getTransactions(w http.ResponseWriter, r *http.Request) {
 
 	itemDetails := []ItemDetail{}
 	for _, item := range items {
-		seller, ok := mapSellers[item.SellerID]
+		seller, ok := mapUsers[item.SellerID]
 		if !ok {
 			outputErrorMsg(w, http.StatusNotFound, "seller not found")
 			tx.Rollback()
@@ -1150,7 +1155,7 @@ func getTransactions(w http.ResponseWriter, r *http.Request) {
 		}
 
 		if item.BuyerID != 0 {
-			buyer, ok := mapBuyers[item.BuyerID]
+			buyer, ok := mapUsers[item.BuyerID]
 			if !ok {
 				outputErrorMsg(w, http.StatusNotFound, "buyer not found")
 				tx.Rollback()
