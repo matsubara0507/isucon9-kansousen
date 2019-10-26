@@ -451,11 +451,9 @@ func getUserAndCSRToken(r *http.Request) (user User, token string, errCode int) 
 	session := getSession(r)
 
 	csrfToken, ok := session.Values["csrf_token"]
-	if !ok {
-		errCode = http.StatusUnprocessableEntity
-		return
+	if ok {
+		token = csrfToken.(string)
 	}
-	token = csrfToken.(string)
 
 	userID, ok := session.Values["user_id"]
 	if !ok {
@@ -1349,12 +1347,12 @@ func postItemEdit(w http.ResponseWriter, r *http.Request) {
 	price := rie.ItemPrice
 
 	seller, csrfToken, errCode := getUserAndCSRToken(r)
-	if errCode != http.StatusOK {
-		outputErrorMsg(w, errCode, "session error")
-		return
-	}
 	if rie.CSRFToken != csrfToken {
 		outputErrorMsg(w, http.StatusUnprocessableEntity, "csrf token error")
+		return
+	}
+	if errCode != http.StatusOK {
+		outputErrorMsg(w, errCode, "session error")
 		return
 	}
 
@@ -1489,12 +1487,12 @@ func postBuy(w http.ResponseWriter, r *http.Request) {
 	}
 
 	buyer, csrfToken, errCode := getUserAndCSRToken(r)
-	if errCode != http.StatusOK {
-		outputErrorMsg(w, errCode, "session error")
-		return
-	}
 	if rb.CSRFToken != csrfToken {
 		outputErrorMsg(w, http.StatusUnprocessableEntity, "csrf token error")
+		return
+	}
+	if errCode != http.StatusOK {
+		outputErrorMsg(w, errCode, "session error")
 		return
 	}
 
@@ -1669,15 +1667,14 @@ func postShip(w http.ResponseWriter, r *http.Request) {
 	itemID := reqps.ItemID
 
 	seller, csrfToken, errCode := getUserAndCSRToken(r)
-	if errCode != http.StatusOK {
-		outputErrorMsg(w, errCode, "session error")
-		return
-	}
 	if reqps.CSRFToken != csrfToken {
 		outputErrorMsg(w, http.StatusUnprocessableEntity, "csrf token error")
 		return
 	}
-
+	if errCode != http.StatusOK {
+		outputErrorMsg(w, errCode, "session error")
+		return
+	}
 
 	transactionEvidence := TransactionEvidence{}
 	err = dbx.Get(&transactionEvidence, "SELECT * FROM `transaction_evidences` WHERE `item_id` = ?", itemID)
@@ -1798,12 +1795,12 @@ func postShipDone(w http.ResponseWriter, r *http.Request) {
 	itemID := reqpsd.ItemID
 
 	seller, csrfToken, errCode := getUserAndCSRToken(r)
-	if errCode != http.StatusOK {
-		outputErrorMsg(w, errCode, "session error")
-		return
-	}
 	if reqpsd.CSRFToken != csrfToken {
 		outputErrorMsg(w, http.StatusUnprocessableEntity, "csrf token error")
+		return
+	}
+	if errCode != http.StatusOK {
+		outputErrorMsg(w, errCode, "session error")
 		return
 	}
 
@@ -1941,12 +1938,12 @@ func postComplete(w http.ResponseWriter, r *http.Request) {
 	itemID := reqpc.ItemID
 
 	buyer, csrfToken, errCode := getUserAndCSRToken(r)
-	if errCode != http.StatusOK {
-		outputErrorMsg(w, errCode, "session error")
-		return
-	}
 	if reqpc.CSRFToken != csrfToken {
 		outputErrorMsg(w, http.StatusUnprocessableEntity, "csrf token error")
+		return
+	}
+	if errCode != http.StatusOK {
+		outputErrorMsg(w, errCode, "session error")
 		return
 	}
 
@@ -2094,12 +2091,12 @@ func postSell(w http.ResponseWriter, r *http.Request) {
 	defer f.Close()
 
 	user, csrfToken, errCode := getUserAndCSRToken(r)
-	if errCode != http.StatusOK {
-		outputErrorMsg(w, errCode, "session error")
-		return
-	}
 	if r.FormValue("csrf_token") != csrfToken {
 		outputErrorMsg(w, http.StatusUnprocessableEntity, "csrf token error")
+		return
+	}
+	if errCode != http.StatusOK {
+		outputErrorMsg(w, errCode, "session error")
 		return
 	}
 
@@ -2239,12 +2236,12 @@ func postBump(w http.ResponseWriter, r *http.Request) {
 	itemID := rb.ItemID
 
 	user, csrfToken, errCode := getUserAndCSRToken(r)
-	if errCode != http.StatusOK {
-		outputErrorMsg(w, errCode, "session error")
-		return
-	}
 	if rb.CSRFToken != csrfToken {
 		outputErrorMsg(w, http.StatusUnprocessableEntity, "csrf token error")
+		return
+	}
+	if errCode != http.StatusOK {
+		outputErrorMsg(w, errCode, "session error")
 		return
 	}
 
@@ -2336,7 +2333,7 @@ func getSettings(w http.ResponseWriter, r *http.Request) {
 	user, csrfToken, errCode := getUserAndCSRToken(r)
 
 	ress := resSetting{}
-	if errCode !=  http.StatusOK {
+	if errCode ==  http.StatusOK {
 		ress.User = &user
 	}
 	ress.CSRFToken = csrfToken
