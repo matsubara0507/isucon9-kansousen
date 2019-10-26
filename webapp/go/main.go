@@ -1124,31 +1124,33 @@ func getTransactions(w http.ResponseWriter, r *http.Request) {
 		transactionIDs = append(transactionIDs, transactionEvidence.ID)
 	}
 
-	inQuery, inArgs, err = sqlx.In("SELECT `transaction_evidence_id`, `reserve_id` FROM `shippings` WHERE `transaction_evidence_id` IN (?)", transactionIDs)
-	if err != nil {
-		log.Print(err)
-		outputErrorMsg(w, http.StatusInternalServerError, "sql error")
-		tx.Rollback()
-		return
-	}
-
-	rows, err := tx.Query(inQuery, inArgs...)
-	if err != nil {
-		log.Print(err)
-		outputErrorMsg(w, http.StatusInternalServerError, "sql error")
-		tx.Rollback()
-		return
-	}
 	mapShippingReserveID := map[int64]string{}
-	for rows.Next() {
-		var transactionEvidenceID int64
-		var reserveID string
-		if err = rows.Scan(&transactionEvidenceID, &reserveID); err != nil {
+	if len(transactionIDs) != 0 {
+		inQuery, inArgs, err = sqlx.In("SELECT `transaction_evidence_id`, `reserve_id` FROM `shippings` WHERE `transaction_evidence_id` IN (?)", transactionIDs)
+		if err != nil {
+			log.Print(err)
 			outputErrorMsg(w, http.StatusInternalServerError, "sql error")
 			tx.Rollback()
 			return
 		}
-		mapShippingReserveID[transactionEvidenceID] = reserveID
+
+		rows, err := tx.Query(inQuery, inArgs...)
+		if err != nil {
+			log.Print(err)
+			outputErrorMsg(w, http.StatusInternalServerError, "sql error")
+			tx.Rollback()
+			return
+		}
+		for rows.Next() {
+			var transactionEvidenceID int64
+			var reserveID string
+			if err = rows.Scan(&transactionEvidenceID, &reserveID); err != nil {
+				outputErrorMsg(w, http.StatusInternalServerError, "sql error")
+				tx.Rollback()
+				return
+			}
+			mapShippingReserveID[transactionEvidenceID] = reserveID
+		}
 	}
 
 	mapUsers := <-mapUsersCh
