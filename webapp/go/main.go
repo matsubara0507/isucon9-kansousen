@@ -2338,7 +2338,7 @@ func getSettings(w http.ResponseWriter, r *http.Request) {
 	user, csrfToken, errCode := getUserAndCSRToken(r)
 
 	ress := resSetting{}
-	if errCode ==  http.StatusOK {
+	if errCode == http.StatusOK {
 		ress.User = &user
 	}
 	ress.CSRFToken = csrfToken
