@@ -1113,25 +1113,6 @@ func getTransactions(w http.ResponseWriter, r *http.Request) {
 
 	tx := dbx.MustBegin()
 
-	itemsCh := make(chan []Item)
-	go func() {
-		inQuery, inArgs, err := sqlx.In("SELECT * FROM `items` WHERE `id` IN (?) ORDER BY `created_at` DESC, `id` DESC", itemIDs)
-		if err != nil {
-			log.Print(err)
-			itemsCh <- []Item{}
-			return
-		}
-
-		var items []Item
-		if err = tx.Select(&items, inQuery, inArgs...); err != nil {
-			log.Print(err)
-			itemsCh <- []Item{}
-			return
-		}
-		itemsCh <- items
-		return
-	}()
-
 	inQuery, inArgs, err := sqlx.In("SELECT * FROM `transaction_evidences` WHERE `item_id` IN (?)", itemIDs)
 	if err != nil {
 		log.Print(err)
@@ -1184,6 +1165,21 @@ func getTransactions(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	inQuery, inArgs, err = sqlx.In("SELECT * FROM `items` WHERE `id` IN (?) ORDER BY `created_at` DESC, `id` DESC", itemIDs)
+	if err != nil {
+		log.Print(err)
+		outputErrorMsg(w, http.StatusInternalServerError, "sql error")
+		tx.Rollback()
+		return
+	}
+	var items []Item
+	if err = tx.Select(&items, inQuery, inArgs...); err != nil {
+		log.Print(err)
+		outputErrorMsg(w, http.StatusInternalServerError, "sql error")
+		tx.Rollback()
+		return
+	}
+
 	mapUsers := <-mapUsersCh
 	if len(mapUsers) == 0 {
 		outputErrorMsg(w, http.StatusNotFound, "user not found")
@@ -1191,7 +1187,6 @@ func getTransactions(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	items := <-itemsCh
 	itemDetails := []ItemDetail{}
 	for _, item := range items {
 		seller, ok := mapUsers[item.SellerID]
