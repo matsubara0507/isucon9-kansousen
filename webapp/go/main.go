@@ -1108,7 +1108,6 @@ func getTransactions(w http.ResponseWriter, r *http.Request) {
 		tx.Rollback()
 		return
 	}
-
 	var transactionEvidences []TransactionEvidence
 	err = tx.Select(&transactionEvidences, inQuery, inArgs...)
 	if err != nil && err != sql.ErrNoRows {
@@ -1119,8 +1118,29 @@ func getTransactions(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	mapTransactionEvidence := map[int64]TransactionEvidence{}
+	transactionIDs := []int64{}
 	for _, transactionEvidence := range transactionEvidences {
 		mapTransactionEvidence[transactionEvidence.ItemID] = transactionEvidence
+		transactionIDs = append(transactionIDs, transactionEvidence.ID)
+	}
+
+	rows, err := tx.Query("SELECT `transaction_evidence_id`, `reserve_id` FROM `shippings` WHERE `transaction_evidence_id` IN (?)", transactionIDs)
+	if err != nil {
+		log.Print(err)
+		outputErrorMsg(w, http.StatusInternalServerError, "sql error")
+		tx.Rollback()
+		return
+	}
+	mapShippingReserveID := map[int64]string{}
+	for rows.Next() {
+		var transactionEvidenceID int64
+		var reserveID string
+		if err = rows.Scan(&transactionEvidenceID, &reserveID); err != nil {
+			outputErrorMsg(w, http.StatusInternalServerError, "sql error")
+			tx.Rollback()
+			return
+		}
+		mapShippingReserveID[transactionEvidenceID] = reserveID
 	}
 
 	mapUsers := <-mapUsersCh
@@ -1183,16 +1203,9 @@ func getTransactions(w http.ResponseWriter, r *http.Request) {
 			if item.Status == ItemStatusSoldOut {
 				itemDetail.ShippingStatus = ShippingsStatusDone
 			} else {
-				var reserveID string
-				err = tx.Get(&reserveID, "SELECT `reserve_id` FROM `shippings` WHERE `transaction_evidence_id` = ?", transactionEvidence.ID)
-				if err == sql.ErrNoRows {
+				reserveID, ok := mapShippingReserveID[transactionEvidence.ID]
+				if !ok {
 					outputErrorMsg(w, http.StatusNotFound, "shipping not found")
-					tx.Rollback()
-					return
-				}
-				if err != nil {
-					log.Print(err)
-					outputErrorMsg(w, http.StatusInternalServerError, "db error")
 					tx.Rollback()
 					return
 				}
