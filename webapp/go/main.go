@@ -1045,9 +1045,9 @@ func getTransactions(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	user, errCode, errMsg := getUser(r)
-	if errMsg != "" {
-		outputErrorMsg(w, errCode, errMsg)
+	userID, ok := getUserID(r)
+	if !ok {
+		outputErrorMsg(w, http.StatusNotFound, "user not found by session")
 		return
 	}
 
@@ -1057,8 +1057,8 @@ func getTransactions(w http.ResponseWriter, r *http.Request) {
 		// paging
 		err := tx.Select(&items,
 			"SELECT * FROM `items` WHERE (`seller_id` = ? OR `buyer_id` = ?) AND (`created_at` < ?  OR (`created_at` <= ? AND `id` < ?)) ORDER BY `created_at` DESC, `id` DESC LIMIT ?",
-			user.ID,
-			user.ID,
+			userID,
+			userID,
 			time.Unix(createdAt, 0),
 			time.Unix(createdAt, 0),
 			itemID,
@@ -1074,8 +1074,8 @@ func getTransactions(w http.ResponseWriter, r *http.Request) {
 		// 1st page
 		err := tx.Select(&items,
 			"SELECT * FROM `items` WHERE (`seller_id` = ? OR `buyer_id` = ?) ORDER BY `created_at` DESC, `id` DESC LIMIT ?",
-			user.ID,
-			user.ID,
+			userID,
+			userID,
 			TransactionsPerPage+1,
 		)
 		if err != nil {
