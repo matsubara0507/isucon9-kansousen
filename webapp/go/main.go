@@ -1572,51 +1572,10 @@ func postBuy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	tx := dbx.MustBegin()
-
-	targetItem := Item{}
-	err = tx.Get(&targetItem, "SELECT * FROM `items` WHERE `id` = ? AND `status` = ? FOR UPDATE", rb.ItemID, ItemStatusOnSale)
-	if err == sql.ErrNoRows {
-		outputErrorMsg(w, http.StatusForbidden, "item is not for sale")
-		tx.Rollback()
-		return
-	}
-	if err != nil {
-		log.Print(err)
-		outputErrorMsg(w, http.StatusInternalServerError, "db error")
-		tx.Rollback()
-		return
-	}
-	_, err = getCategoryByID(targetItem.CategoryID)
-	if err != nil {
-		log.Print(err)
-
-		outputErrorMsg(w, http.StatusInternalServerError, "category id error")
-		tx.Rollback()
-		return
-	}
-
-	pstrCh := make(chan *APIPaymentServiceTokenRes)
-	go func() {
-		pstr, err := APIPaymentToken(getPaymentServiceURL(), &APIPaymentServiceTokenReq{
-			ShopID: PaymentServiceIsucariShopID,
-			Token:  rb.Token,
-			APIKey: PaymentServiceIsucariAPIKey,
-			Price:  targetItem.Price,
-		})
-
-		if err != nil {
-			log.Printf("payment service is failed: %v", err)
-			pstrCh <- nil
-		} else {
-			pstrCh <- pstr
-		}
-	}()
-
 	scrCh := make(chan *APIShipmentCreateRes)
 	go func() {
 		seller := User{}
-		err = tx.Get(&seller, "SELECT * FROM `users` WHERE `id` = ?", sellerID)
+		err = dbx.Get(&seller, "SELECT * FROM `users` WHERE `id` = ?", sellerID)
 		if err != nil {
 			log.Print(err)
 			scrCh <- nil
@@ -1636,6 +1595,30 @@ func postBuy(w http.ResponseWriter, r *http.Request) {
 			scrCh <- nil
 		}
 	}()
+
+	tx := dbx.MustBegin()
+
+	var targetItem Item
+	err = tx.Get(&targetItem, "SELECT * FROM `items` WHERE `id` = ? AND `status` = ?", rb.ItemID, ItemStatusOnSale)
+	if err == sql.ErrNoRows {
+		outputErrorMsg(w, http.StatusForbidden, "item is not for sale")
+		tx.Rollback()
+		return
+	}
+	if err != nil {
+		log.Print(err)
+		outputErrorMsg(w, http.StatusInternalServerError, "db error")
+		tx.Rollback()
+		return
+	}
+	_, err = getCategoryByID(targetItem.CategoryID)
+	if err != nil {
+		log.Print(err)
+
+		outputErrorMsg(w, http.StatusInternalServerError, "category id error")
+		tx.Rollback()
+		return
+	}
 
 	result, err := tx.Exec("INSERT INTO `transaction_evidences` (`seller_id`, `buyer_id`, `status`, `item_id`, `item_price`) VALUES (?, ?, ?, ?, ?)",
 		targetItem.SellerID,
@@ -1661,11 +1644,13 @@ func postBuy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	_, err = tx.Exec("UPDATE `items` SET `buyer_id` = ?, `status` = ?, `updated_at` = ? WHERE `id` = ?",
+	_, err = tx.Exec("UPDATE `items` SET `buyer_id` = ?, `status` = ?, `updated_at` = ? WHERE `id` = ? AND `status` = ? AND `price` = ?",
 		buyer.ID,
 		ItemStatusTrading,
 		time.Now(),
 		targetItem.ID,
+		ItemStatusOnSale,
+		targetItem.Price,
 	)
 	if err != nil {
 		log.Print(err)
@@ -1675,8 +1660,19 @@ func postBuy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	pstr := <-pstrCh
-	if pstr == nil {
+	scr := <-scrCh
+	if scr == nil {
+		outputErrorMsg(w, http.StatusInternalServerError, "failed to request to shipment service")
+		return
+	}
+
+	pstr, err := APIPaymentToken(getPaymentServiceURL(), &APIPaymentServiceTokenReq{
+		ShopID: PaymentServiceIsucariShopID,
+		Token:  rb.Token,
+		APIKey: PaymentServiceIsucariAPIKey,
+		Price:  targetItem.Price,
+	})
+	if err != nil {
 		outputErrorMsg(w, http.StatusInternalServerError, "payment service is failed")
 		tx.Rollback()
 		return
@@ -1694,12 +1690,6 @@ func postBuy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	scr := <-scrCh
-	if scr == nil {
-		outputErrorMsg(w, http.StatusInternalServerError, "failed to request to shipment service")
-		tx.Rollback()
-		return
-	}
 	_, err = tx.Exec("INSERT INTO `shippings` (`transaction_evidence_id`, `status`, `item_id`, `reserve_id`, `img_binary`) VALUES (?,?,?,?,?)",
 		transactionEvidenceID,
 		ShippingsStatusInitial,

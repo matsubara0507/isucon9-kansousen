@@ -31,6 +31,7 @@ CREATE TABLE `items` (
   `category_id` int unsigned NOT NULL,
   `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
   `updated_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  INDEX idx_for_post_buy (`id`, `status`),
   INDEX idx_for_new_item (`status`, `created_at`),
   INDEX idx_for_new_category_item (`status`, `category_id`, `created_at`),
   INDEX idx_for_user_item (`seller_id`, `created_at`),
