@@ -1124,7 +1124,15 @@ func getTransactions(w http.ResponseWriter, r *http.Request) {
 		transactionIDs = append(transactionIDs, transactionEvidence.ID)
 	}
 
-	rows, err := tx.Query("SELECT `transaction_evidence_id`, `reserve_id` FROM `shippings` WHERE `transaction_evidence_id` IN (?)", transactionIDs)
+	inQuery, inArgs, err = sqlx.In("SELECT `transaction_evidence_id`, `reserve_id` FROM `shippings` WHERE `transaction_evidence_id` IN (?)", transactionIDs)
+	if err != nil {
+		log.Print(err)
+		outputErrorMsg(w, http.StatusInternalServerError, "sql error")
+		tx.Rollback()
+		return
+	}
+
+	rows, err := tx.Query(inQuery, inArgs...)
 	if err != nil {
 		log.Print(err)
 		outputErrorMsg(w, http.StatusInternalServerError, "sql error")
