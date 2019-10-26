@@ -1086,12 +1086,15 @@ func getTransactions(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	mapUsers, err := getUsersByItems(items)
-	if err != nil {
-		outputErrorMsg(w, http.StatusNotFound, "user not found")
-		tx.Rollback()
-		return
-	}
+	mapUsersCh := make(chan map[int64]UserSimple)
+	go func() {
+		mapUsers, err := getUsersByItems(items)
+		if err != nil {
+			mapUsersCh <- map[int64]UserSimple{}
+		} else {
+			mapUsersCh <- mapUsers
+		}
+	}()
 
 	itemIDs := []int64{}
 	for _, item := range items {
@@ -1118,6 +1121,13 @@ func getTransactions(w http.ResponseWriter, r *http.Request) {
 	mapTransactionEvidence := map[int64]TransactionEvidence{}
 	for _, transactionEvidence := range transactionEvidences {
 		mapTransactionEvidence[transactionEvidence.ItemID] = transactionEvidence
+	}
+
+	mapUsers := <-mapUsersCh
+	if len(mapUsers) == 0 {
+		outputErrorMsg(w, http.StatusNotFound, "user not found")
+		tx.Rollback()
+		return
 	}
 
 	itemDetails := []ItemDetail{}
