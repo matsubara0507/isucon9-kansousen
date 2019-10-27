@@ -1187,18 +1187,18 @@ func getTransactions(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	tx.Commit()
+
 	itemDetails := []ItemDetail{}
 	for _, item := range items {
 		seller, ok := mapUsers[item.SellerID]
 		if !ok {
 			outputErrorMsg(w, http.StatusNotFound, "seller not found")
-			tx.Rollback()
 			return
 		}
 		category, err := getCategoryByID(item.CategoryID)
 		if err != nil {
 			outputErrorMsg(w, http.StatusNotFound, "category not found")
-			tx.Rollback()
 			return
 		}
 
@@ -1225,7 +1225,6 @@ func getTransactions(w http.ResponseWriter, r *http.Request) {
 			buyer, ok := mapUsers[item.BuyerID]
 			if !ok {
 				outputErrorMsg(w, http.StatusNotFound, "buyer not found")
-				tx.Rollback()
 				return
 			}
 			itemDetail.BuyerID = item.BuyerID
@@ -1243,7 +1242,6 @@ func getTransactions(w http.ResponseWriter, r *http.Request) {
 				reserveID, ok := mapShippingReserveID[transactionEvidence.ID]
 				if !ok {
 					outputErrorMsg(w, http.StatusNotFound, "shipping not found")
-					tx.Rollback()
 					return
 				}
 				ssr, err := APIShipmentStatus(getShipmentServiceURL(), &APIShipmentStatusReq{
@@ -1252,7 +1250,6 @@ func getTransactions(w http.ResponseWriter, r *http.Request) {
 				if err != nil {
 					log.Print(err)
 					outputErrorMsg(w, http.StatusInternalServerError, "failed to request to shipment service")
-					tx.Rollback()
 					return
 				}
 
@@ -1262,7 +1259,6 @@ func getTransactions(w http.ResponseWriter, r *http.Request) {
 
 		itemDetails = append(itemDetails, itemDetail)
 	}
-	tx.Commit()
 
 	hasNext := false
 	if len(itemDetails) > TransactionsPerPage {
