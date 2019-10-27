@@ -1198,7 +1198,7 @@ func getTransactions(w http.ResponseWriter, r *http.Request) {
 	wg := sync.WaitGroup{}
 	for _, item := range items {
 		wg.Add(1)
-		go func() {
+		go func(item Item) {
 			defer wg.Done()
 
 			seller, ok := mapUsers[item.SellerID]
@@ -1269,7 +1269,7 @@ func getTransactions(w http.ResponseWriter, r *http.Request) {
 			}
 
 			itemDetailCh <- itemDetail
-		}()
+		}(item)
 	}
 
 	go func() {
@@ -1277,9 +1277,9 @@ func getTransactions(w http.ResponseWriter, r *http.Request) {
 		httpStatusCh <- http.StatusOK
 	}()
 
-	itemDetails := make([]ItemDetail, len(items))
+	itemDetails := []ItemDetail{}
 	status := 0
-	for status != 0 {
+	for status == 0 {
 		select {
 		case itemDetail := <-itemDetailCh:
 			itemDetails = append(itemDetails, itemDetail)
