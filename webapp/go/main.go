@@ -1598,8 +1598,12 @@ func postBuy(w http.ResponseWriter, r *http.Request) {
 
 	tx := dbx.MustBegin()
 
-	var targetItem Item
-	err = tx.Get(&targetItem, "SELECT * FROM `items` WHERE `id` = ? AND `status` = ?", rb.ItemID, ItemStatusOnSale)
+	_, err = tx.Exec("UPDATE `items` SET `buyer_id` = ?, `status` = ?, `updated_at` = ? WHERE `id` = ? AND `status` = ?, rb.ItemID, ItemStatusOnSale",
+		buyer.ID,
+		ItemStatusTrading,
+		time.Now(),
+		rb.ItemID,
+	)
 	if err == sql.ErrNoRows {
 		outputErrorMsg(w, http.StatusForbidden, "item is not for sale")
 		tx.Rollback()
@@ -1611,24 +1615,11 @@ func postBuy(w http.ResponseWriter, r *http.Request) {
 		tx.Rollback()
 		return
 	}
-	_, err = getCategoryByID(targetItem.CategoryID)
+
+	var targetItem Item
+	err = tx.Get(&targetItem, "SELECT * FROM `items` WHERE `id` = ? AND `buyer_id` = ? FOR UPDATE", targetItem.ID, buyer.ID)
 	if err != nil {
 		log.Print(err)
-
-		outputErrorMsg(w, http.StatusInternalServerError, "category id error")
-		tx.Rollback()
-		return
-	}
-
-	_, err = tx.Exec("UPDATE `items` SET `buyer_id` = ?, `status` = ?, `updated_at` = ? WHERE `id` = ?",
-		buyer.ID,
-		ItemStatusTrading,
-		time.Now(),
-		targetItem.ID,
-	)
-	if err != nil {
-		log.Print(err)
-
 		outputErrorMsg(w, http.StatusInternalServerError, "db error")
 		tx.Rollback()
 		return
@@ -1665,24 +1656,11 @@ func postBuy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var price int
-	err = tx.Get(&price, "SELECT `price` FROM `items` WHERE `id` = ? AND `buyer_id` = ? AND `price` = ? FOR UPDATE",
-		targetItem.ID,
-		buyer.ID,
-		targetItem.Price,
-	)
-	if err != nil {
-		log.Print(err)
-		outputErrorMsg(w, http.StatusInternalServerError, "db error")
-		tx.Rollback()
-		return
-	}
-
 	pstr, err := APIPaymentToken(getPaymentServiceURL(), &APIPaymentServiceTokenReq{
 		ShopID: PaymentServiceIsucariShopID,
 		Token:  rb.Token,
 		APIKey: PaymentServiceIsucariAPIKey,
-		Price:  price,
+		Price:  targetItem.Price,
 	})
 	if err != nil {
 		outputErrorMsg(w, http.StatusInternalServerError, "payment service is failed")
@@ -1715,7 +1693,6 @@ func postBuy(w http.ResponseWriter, r *http.Request) {
 		outputErrorMsg(w, http.StatusInternalServerError, "db error")
 		return
 	}
-
 
 	w.Header().Set("Content-Type", "application/json;charset=utf-8")
 	json.NewEncoder(w).Encode(resBuy{TransactionEvidenceID: transactionEvidenceID})
