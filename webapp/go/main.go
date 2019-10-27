@@ -1026,7 +1026,7 @@ func getNewItemsByUserID(userID, itemID, createdAt int64) (items []Item, err err
 	var rows *sql.Rows
 	if itemID > 0 && createdAt > 0 {
 		rows, err = dbx.Query(
-			"SELECT `id`, `seller_id`, `buyer_id` FROM `items` WHERE (`seller_id` = ? OR `buyer_id` = ?) AND (`created_at` < ?  OR (`created_at` <= ? AND `id` < ?)) ORDER BY `created_at` DESC, `id` DESC LIMIT ?",
+			"SELECT `id`, `seller_id`, `buyer_id`, `created_at` FROM `items` WHERE (`seller_id` = ? OR `buyer_id` = ?) AND (`created_at` < ?  OR (`created_at` <= ? AND `id` < ?)) ORDER BY `created_at` DESC, `id` DESC LIMIT ?",
 			userID,
 			userID,
 			time.Unix(createdAt, 0),
@@ -1037,7 +1037,7 @@ func getNewItemsByUserID(userID, itemID, createdAt int64) (items []Item, err err
 	} else {
 		// 1st page
 		rows, err = dbx.Query(
-			"(SELECT `id`, `seller_id`, `buyer_id` FROM `items` WHERE `seller_id` = ? ORDER BY `created_at` DESC, `id` DESC LIMIT ?) UNION (SELECT `id`, `seller_id`, `buyer_id` FROM `items` WHERE `buyer_id` = ? ORDER BY `created_at` DESC, `id` DESC LIMIT ?) ORDER BY `created_at` DESC, `id` DESC LIMIT ?",
+			"(SELECT `id`, `seller_id`, `buyer_id`, `created_at` FROM `items` WHERE `seller_id` = ? ORDER BY `created_at` DESC, `id` DESC LIMIT ?) UNION (SELECT `id`, `seller_id`, `buyer_id`, `created_at` FROM `items` WHERE `buyer_id` = ? ORDER BY `created_at` DESC, `id` DESC LIMIT ?) ORDER BY `created_at` DESC, `id` DESC LIMIT ?",
 			userID,
 			TransactionsPerPage+1,
 			userID,
@@ -1052,12 +1052,13 @@ func getNewItemsByUserID(userID, itemID, createdAt int64) (items []Item, err err
 
 	for rows.Next() {
 		var itemID, sellerID, buyerID int64
-		if err = rows.Scan(&itemID, &sellerID, &buyerID); err != nil {
+		var created_at time.Time
+		if err = rows.Scan(&itemID, &sellerID, &buyerID, &created_at); err != nil {
 			log.Print(err)
 			rows.Close()
 			return
 		}
-		items = append(items, Item{ID: itemID, SellerID: sellerID, BuyerID: buyerID})
+		items = append(items, Item{ID: itemID, SellerID: sellerID, BuyerID: buyerID, CreatedAt: created_at})
 	}
 	return
 }
@@ -1094,6 +1095,7 @@ func getTransactions(w http.ResponseWriter, r *http.Request) {
 	// only id, seller_id, buyer_id
 	dumpItems, err := getNewItemsByUserID(userID, itemID, createdAt)
 	if err != nil {
+		log.Print(err)
 		outputErrorMsg(w, http.StatusInternalServerError, "get new items error")
 		return
 	}
