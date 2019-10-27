@@ -97,7 +97,7 @@ type Item struct {
 	SellerID    int64     `json:"seller_id" db:"seller_id"`
 	BuyerID     int64     `json:"buyer_id" db:"buyer_id"`
 	Status      string    `json:"status" db:"status"`
-	LockStatus  int       `db: "lock_status"`
+	LockStatus  int       `json:"lock_status" db:"lock_status"`
 	Name        string    `json:"name" db:"name"`
 	Price       int       `json:"price" db:"price"`
 	Description string    `json:"description" db:"description"`
@@ -1621,9 +1621,10 @@ func postBuy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	_, err = tx.Exec("UPDATE `items` SET `buyer_id` = ?, `status` = ?, `updated_at` = ? WHERE `id` = ? AND `lock_status` = ?",
+	_, err = tx.Exec("UPDATE `items` SET `buyer_id` = ?, `status` = ?, `lock_status` = ?, updated_at` = ? WHERE `id` = ? AND `lock_status` = ?",
 		buyer.ID,
 		ItemStatusTrading,
+		1,
 		time.Now(),
 		targetItem.ID,
 		0,
