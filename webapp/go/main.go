@@ -13,6 +13,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strconv"
+	"sync"
 	"time"
 
 	_ "github.com/go-sql-driver/mysql"
@@ -1189,75 +1190,100 @@ func getTransactions(w http.ResponseWriter, r *http.Request) {
 
 	tx.Commit()
 
+	itemDetailCh := make(chan ItemDetail)
+	httpStatusCh := make(chan int)
+	wg := sync.WaitGroup{}
 	itemDetails := []ItemDetail{}
 	for _, item := range items {
-		seller, ok := mapUsers[item.SellerID]
-		if !ok {
-			outputErrorMsg(w, http.StatusNotFound, "seller not found")
-			return
-		}
-		category, err := getCategoryByID(item.CategoryID)
-		if err != nil {
-			outputErrorMsg(w, http.StatusNotFound, "category not found")
-			return
-		}
-
-		itemDetail := ItemDetail{
-			ID:       item.ID,
-			SellerID: item.SellerID,
-			Seller:   &seller,
-			// BuyerID
-			// Buyer
-			Status:      item.Status,
-			Name:        item.Name,
-			Price:       item.Price,
-			Description: item.Description,
-			ImageURL:    getImageURL(item.ImageName),
-			CategoryID:  item.CategoryID,
-			// TransactionEvidenceID
-			// TransactionEvidenceStatus
-			// ShippingStatus
-			Category:  &category,
-			CreatedAt: item.CreatedAt.Unix(),
-		}
-
-		if item.BuyerID != 0 {
-			buyer, ok := mapUsers[item.BuyerID]
+		wg.Add(1)
+		go func(item Item) {
+			defer wg.Done()
+			seller, ok := mapUsers[item.SellerID]
 			if !ok {
-				outputErrorMsg(w, http.StatusNotFound, "buyer not found")
+				httpStatusCh <- http.StatusNotFound
 				return
 			}
-			itemDetail.BuyerID = item.BuyerID
-			itemDetail.Buyer = &buyer
-		}
-
-		transactionEvidence, ok := mapTransactionEvidence[item.ID]
-		if ok {
-			itemDetail.TransactionEvidenceID = transactionEvidence.ID
-			itemDetail.TransactionEvidenceStatus = transactionEvidence.Status
-
-			if item.Status == ItemStatusSoldOut {
-				itemDetail.ShippingStatus = ShippingsStatusDone
-			} else {
-				reserveID, ok := mapShippingReserveID[transactionEvidence.ID]
-				if !ok {
-					outputErrorMsg(w, http.StatusNotFound, "shipping not found")
-					return
-				}
-				ssr, err := APIShipmentStatus(getShipmentServiceURL(), &APIShipmentStatusReq{
-					ReserveID: reserveID,
-				})
-				if err != nil {
-					log.Print(err)
-					outputErrorMsg(w, http.StatusInternalServerError, "failed to request to shipment service")
-					return
-				}
-
-				itemDetail.ShippingStatus = ssr.Status
+			category, err := getCategoryByID(item.CategoryID)
+			if err != nil {
+				httpStatusCh <- http.StatusNotFound
+				return
 			}
-		}
 
-		itemDetails = append(itemDetails, itemDetail)
+			itemDetail := ItemDetail{
+				ID:       item.ID,
+				SellerID: item.SellerID,
+				Seller:   &seller,
+				// BuyerID
+				// Buyer
+				Status:      item.Status,
+				Name:        item.Name,
+				Price:       item.Price,
+				Description: item.Description,
+				ImageURL:    getImageURL(item.ImageName),
+				CategoryID:  item.CategoryID,
+				// TransactionEvidenceID
+				// TransactionEvidenceStatus
+				// ShippingStatus
+				Category:  &category,
+				CreatedAt: item.CreatedAt.Unix(),
+			}
+
+			if item.BuyerID != 0 {
+				buyer, ok := mapUsers[item.BuyerID]
+				if !ok {
+					httpStatusCh <- http.StatusNotFound
+					return
+				}
+				itemDetail.BuyerID = item.BuyerID
+				itemDetail.Buyer = &buyer
+			}
+
+			transactionEvidence, ok := mapTransactionEvidence[item.ID]
+			if ok {
+				itemDetail.TransactionEvidenceID = transactionEvidence.ID
+				itemDetail.TransactionEvidenceStatus = transactionEvidence.Status
+
+				if item.Status == ItemStatusSoldOut {
+					itemDetail.ShippingStatus = ShippingsStatusDone
+				} else {
+					reserveID, ok := mapShippingReserveID[transactionEvidence.ID]
+					if !ok {
+						httpStatusCh <- http.StatusNotFound
+						return
+					}
+					ssr, err := APIShipmentStatus(getShipmentServiceURL(), &APIShipmentStatusReq{
+						ReserveID: reserveID,
+					})
+					if err != nil {
+						log.Print(err)
+						httpStatusCh <- http.StatusInternalServerError
+						return
+					}
+
+					itemDetail.ShippingStatus = ssr.Status
+				}
+			}
+
+			itemDetailCh <- itemDetail
+		}(item)
+	}
+
+	go func() {
+		wg.Wait()
+		httpStatusCh <- http.StatusOK
+	}()
+
+	status := 0
+	for status == 0 {
+		select {
+		case status = <-httpStatusCh:
+		case itemDetail := <-itemDetailCh:
+			itemDetails = append(itemDetails, itemDetail)
+		}
+	}
+	if status != http.StatusOK {
+		outputErrorMsg(w, status, "db error")
+		return
 	}
 
 	hasNext := false
