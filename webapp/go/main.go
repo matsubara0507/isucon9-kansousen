@@ -1116,8 +1116,6 @@ func getTransactions(w http.ResponseWriter, r *http.Request) {
 		itemIDs = append(itemIDs, item.ID)
 	}
 
-	tx := dbx.MustBegin()
-
 	badHttpStatusCh := make(chan int)
 	mapTransactionEvidenceCh := make(chan map[int64]TransactionEvidence)
 	mapShippingReserveIDCh := make(chan map[int64]string)
@@ -1129,7 +1127,7 @@ func getTransactions(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		var transactionEvidences []TransactionEvidence
-		err = tx.Select(&transactionEvidences, inQuery, inArgs...)
+		err = dbx.Select(&transactionEvidences, inQuery, inArgs...)
 		if err != nil && err != sql.ErrNoRows {
 			// It's able to ignore ErrNoRows
 			log.Print(err)
@@ -1157,7 +1155,7 @@ func getTransactions(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 
-			rows, err := tx.Query(inQuery, inArgs...)
+			rows, err := dbx.Query(inQuery, inArgs...)
 			if err != nil {
 				log.Print(err)
 				badHttpStatusCh <- http.StatusInternalServerError
@@ -1180,21 +1178,18 @@ func getTransactions(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		log.Print(err)
 		outputErrorMsg(w, http.StatusInternalServerError, "sql error")
-		tx.Rollback()
 		return
 	}
 	var items []Item
-	if err = tx.Select(&items, inQuery, inArgs...); err != nil {
+	if err = dbx.Select(&items, inQuery, inArgs...); err != nil {
 		log.Print(err)
 		outputErrorMsg(w, http.StatusInternalServerError, "sql error")
-		tx.Rollback()
 		return
 	}
 
 	mapUsers := <-mapUsersCh
 	if len(mapUsers) == 0 {
 		outputErrorMsg(w, http.StatusNotFound, "user not found")
-		tx.Rollback()
 		return
 	}
 
@@ -1203,7 +1198,6 @@ func getTransactions(w http.ResponseWriter, r *http.Request) {
 	case mapTransactionEvidence = <-mapTransactionEvidenceCh:
 	case badStatus := <-badHttpStatusCh:
 		outputErrorMsg(w, badStatus, "db error")
-		tx.Rollback()
 		return
 	}
 
@@ -1212,11 +1206,8 @@ func getTransactions(w http.ResponseWriter, r *http.Request) {
 	case mapShippingReserveID = <-mapShippingReserveIDCh:
 	case badStatus := <-badHttpStatusCh:
 		outputErrorMsg(w, badStatus, "db error")
-		tx.Rollback()
 		return
 	}
-
-	tx.Commit()
 
 	itemDetailCh := make(chan ItemDetail)
 	httpStatusCh := make(chan int)
