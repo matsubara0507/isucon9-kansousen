@@ -97,7 +97,6 @@ type Item struct {
 	SellerID    int64     `json:"seller_id" db:"seller_id"`
 	BuyerID     int64     `json:"buyer_id" db:"buyer_id"`
 	Status      string    `json:"status" db:"status"`
-	LockStatus  int       `json:"lock_status" db:"lock_status"`
 	Name        string    `json:"name" db:"name"`
 	Price       int       `json:"price" db:"price"`
 	Description string    `json:"description" db:"description"`
@@ -1600,7 +1599,7 @@ func postBuy(w http.ResponseWriter, r *http.Request) {
 	tx := dbx.MustBegin()
 
 	var targetItem Item
-	err = tx.Get(&targetItem, "SELECT * FROM `items` WHERE `id` = ? AND `lock_status` = ?", rb.ItemID, 0)
+	err = tx.Get(&targetItem, "SELECT * FROM `items` WHERE `id` = ? AND `status` = ?", rb.ItemID, ItemStatusOnSale)
 	if err == sql.ErrNoRows {
 		outputErrorMsg(w, http.StatusForbidden, "item is not for sale")
 		tx.Rollback()
@@ -1621,13 +1620,11 @@ func postBuy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	_, err = tx.Exec("UPDATE `items` SET `buyer_id` = ?, `status` = ?, `lock_status` = ?, `updated_at` = ? WHERE `id` = ? AND `lock_status` = ?",
+	_, err = tx.Exec("UPDATE `items` SET `buyer_id` = ?, `status` = ?, `updated_at` = ? WHERE `id` = ?",
 		buyer.ID,
 		ItemStatusTrading,
-		1,
 		time.Now(),
 		targetItem.ID,
-		0,
 	)
 	if err != nil {
 		log.Print(err)
@@ -1664,6 +1661,20 @@ func postBuy(w http.ResponseWriter, r *http.Request) {
 	scr := <-scrCh
 	if scr == nil {
 		outputErrorMsg(w, http.StatusInternalServerError, "failed to request to shipment service")
+		tx.Rollback()
+		return
+	}
+
+	var price int
+	err = tx.Get(&price, "SELECT `price` FROM `items` WHERE `id` = ? AND `buyer_id` = ? AND `price` = ? FOR UPDATE",
+		targetItem.ID,
+		buyer.ID,
+		targetItem.Price,
+	)
+	if err != nil {
+		log.Print(err)
+		outputErrorMsg(w, http.StatusInternalServerError, "db error")
+		tx.Rollback()
 		return
 	}
 
@@ -1671,7 +1682,7 @@ func postBuy(w http.ResponseWriter, r *http.Request) {
 		ShopID: PaymentServiceIsucariShopID,
 		Token:  rb.Token,
 		APIKey: PaymentServiceIsucariAPIKey,
-		Price:  targetItem.Price,
+		Price:  price,
 	})
 	if err != nil {
 		outputErrorMsg(w, http.StatusInternalServerError, "payment service is failed")
@@ -1690,8 +1701,9 @@ func postBuy(w http.ResponseWriter, r *http.Request) {
 		tx.Rollback()
 		return
 	}
+	tx.Commit()
 
-	_, err = tx.Exec("INSERT INTO `shippings` (`transaction_evidence_id`, `status`, `item_id`, `reserve_id`, `img_binary`) VALUES (?,?,?,?,?)",
+	_, err = dbx.Exec("INSERT INTO `shippings` (`transaction_evidence_id`, `status`, `item_id`, `reserve_id`, `img_binary`) VALUES (?,?,?,?,?)",
 		transactionEvidenceID,
 		ShippingsStatusInitial,
 		targetItem.ID,
@@ -1701,11 +1713,9 @@ func postBuy(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		log.Print(err)
 		outputErrorMsg(w, http.StatusInternalServerError, "db error")
-		tx.Rollback()
 		return
 	}
 
-	tx.Commit()
 
 	w.Header().Set("Content-Type", "application/json;charset=utf-8")
 	json.NewEncoder(w).Encode(resBuy{TransactionEvidenceID: transactionEvidenceID})
