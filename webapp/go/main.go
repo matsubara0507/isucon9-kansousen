@@ -14,6 +14,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"time"
+	"sort"
 
 	_ "github.com/go-sql-driver/mysql"
 	"github.com/gorilla/sessions"
@@ -1169,7 +1170,7 @@ func getTransactions(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	inQuery, inArgs, err = sqlx.In("SELECT * FROM `items` WHERE `id` IN (?) ORDER BY `created_at` DESC, `id` DESC", itemIDs)
+	inQuery, inArgs, err = sqlx.In("SELECT * FROM `items` WHERE `id` IN (?)", itemIDs)
 	if err != nil {
 		log.Print(err)
 		outputErrorMsg(w, http.StatusInternalServerError, "sql error")
@@ -1183,6 +1184,13 @@ func getTransactions(w http.ResponseWriter, r *http.Request) {
 		tx.Rollback()
 		return
 	}
+	sort.Slice(items, func(i, j int) bool {
+		if (items[i].CreatedAt == items[j].CreatedAt) {
+			return items[i].ID < items[j].ID
+		} else {
+			return items[i].CreatedAt.Unix() < items[j].CreatedAt.Unix()
+		}
+	})
 
 	mapUsers := <-mapUsersCh
 	if len(mapUsers) == 0 {
