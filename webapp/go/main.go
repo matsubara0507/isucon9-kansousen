@@ -1116,18 +1116,22 @@ func getTransactions(w http.ResponseWriter, r *http.Request) {
 		itemIDs = append(itemIDs, item.ID)
 	}
 
+	tx := dbx.MustBegin()
+
 	inQuery, inArgs, err := sqlx.In("SELECT * FROM `transaction_evidences` WHERE `item_id` IN (?)", itemIDs)
 	if err != nil {
 		log.Print(err)
 		outputErrorMsg(w, http.StatusInternalServerError, "sql error")
+		tx.Rollback()
 		return
 	}
 	var transactionEvidences []TransactionEvidence
-	err = dbx.Select(&transactionEvidences, inQuery, inArgs...)
+	err = tx.Select(&transactionEvidences, inQuery, inArgs...)
 	if err != nil && err != sql.ErrNoRows {
 		// It's able to ignore ErrNoRows
 		log.Print(err)
 		outputErrorMsg(w, http.StatusInternalServerError, "db error")
+		tx.Rollback()
 		return
 	}
 	mapTransactionEvidence := map[int64]TransactionEvidence{}
@@ -1143,13 +1147,15 @@ func getTransactions(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			log.Print(err)
 			outputErrorMsg(w, http.StatusInternalServerError, "sql error")
+			tx.Rollback()
 			return
 		}
 
-		rows, err := dbx.Query(inQuery, inArgs...)
+		rows, err := tx.Query(inQuery, inArgs...)
 		if err != nil {
 			log.Print(err)
 			outputErrorMsg(w, http.StatusInternalServerError, "sql error")
+			tx.Rollback()
 			return
 		}
 		for rows.Next() {
@@ -1157,6 +1163,7 @@ func getTransactions(w http.ResponseWriter, r *http.Request) {
 			var reserveID string
 			if err = rows.Scan(&transactionEvidenceID, &reserveID); err != nil {
 				outputErrorMsg(w, http.StatusInternalServerError, "sql error")
+				tx.Rollback()
 				return
 			}
 			mapShippingReserveID[transactionEvidenceID] = reserveID
@@ -1167,12 +1174,14 @@ func getTransactions(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		log.Print(err)
 		outputErrorMsg(w, http.StatusInternalServerError, "sql error")
+		tx.Rollback()
 		return
 	}
 	var items []Item
-	if err = dbx.Select(&items, inQuery, inArgs...); err != nil {
+	if err = tx.Select(&items, inQuery, inArgs...); err != nil {
 		log.Print(err)
 		outputErrorMsg(w, http.StatusInternalServerError, "sql error")
+		tx.Rollback()
 		return
 	}
 	sort.Slice(items, func(i, j int) bool {
@@ -1186,6 +1195,7 @@ func getTransactions(w http.ResponseWriter, r *http.Request) {
 	mapUsers := <-mapUsersCh
 	if len(mapUsers) == 0 {
 		outputErrorMsg(w, http.StatusNotFound, "user not found")
+		tx.Rollback()
 		return
 	}
 
@@ -1194,11 +1204,13 @@ func getTransactions(w http.ResponseWriter, r *http.Request) {
 		seller, ok := mapUsers[item.SellerID]
 		if !ok {
 			outputErrorMsg(w, http.StatusNotFound, "seller not found")
+			tx.Rollback()
 			return
 		}
 		category, err := getCategoryByID(item.CategoryID)
 		if err != nil {
 			outputErrorMsg(w, http.StatusNotFound, "category not found")
+			tx.Rollback()
 			return
 		}
 
@@ -1225,6 +1237,7 @@ func getTransactions(w http.ResponseWriter, r *http.Request) {
 			buyer, ok := mapUsers[item.BuyerID]
 			if !ok {
 				outputErrorMsg(w, http.StatusNotFound, "buyer not found")
+				tx.Rollback()
 				return
 			}
 			itemDetail.BuyerID = item.BuyerID
@@ -1242,6 +1255,7 @@ func getTransactions(w http.ResponseWriter, r *http.Request) {
 				reserveID, ok := mapShippingReserveID[transactionEvidence.ID]
 				if !ok {
 					outputErrorMsg(w, http.StatusNotFound, "shipping not found")
+					tx.Rollback()
 					return
 				}
 				ssr, err := APIShipmentStatus(getShipmentServiceURL(), &APIShipmentStatusReq{
@@ -1250,6 +1264,7 @@ func getTransactions(w http.ResponseWriter, r *http.Request) {
 				if err != nil {
 					log.Print(err)
 					outputErrorMsg(w, http.StatusInternalServerError, "failed to request to shipment service")
+					tx.Rollback()
 					return
 				}
 
@@ -1259,6 +1274,7 @@ func getTransactions(w http.ResponseWriter, r *http.Request) {
 
 		itemDetails = append(itemDetails, itemDetail)
 	}
+	tx.Commit()
 
 	hasNext := false
 	if len(itemDetails) > TransactionsPerPage {
