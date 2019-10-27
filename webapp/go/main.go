@@ -1037,9 +1037,11 @@ func getNewItemsByUserID(userID, itemID, createdAt int64) (items []Item, err err
 	} else {
 		// 1st page
 		rows, err = dbx.Query(
-			"SELECT `id`, `seller_id`, `buyer_id` FROM `items` WHERE (`seller_id` = ? OR `buyer_id` = ?) ORDER BY `created_at` DESC, `id` DESC LIMIT ?",
+			"(SELECT `id`, `seller_id`, `buyer_id` FROM `items` WHERE `seller_id` = ? ORDER BY `created_at` DESC, `id` DESC LIMIT ?) UNION (SELECT `id`, `seller_id`, `buyer_id` FROM `items` WHERE `buyer_id` = ? ORDER BY `created_at` DESC, `id` DESC LIMIT ?) ORDER BY `created_at` DESC, `id` DESC LIMIT ?",
 			userID,
+			TransactionsPerPage+1,
 			userID,
+			TransactionsPerPage+1,
 			TransactionsPerPage+1,
 		)
 	}
