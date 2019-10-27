@@ -97,6 +97,7 @@ type Item struct {
 	SellerID    int64     `json:"seller_id" db:"seller_id"`
 	BuyerID     int64     `json:"buyer_id" db:"buyer_id"`
 	Status      string    `json:"status" db:"status"`
+	LockStatus  int       `db: "lock_status"`
 	Name        string    `json:"name" db:"name"`
 	Price       int       `json:"price" db:"price"`
 	Description string    `json:"description" db:"description"`
@@ -1599,7 +1600,7 @@ func postBuy(w http.ResponseWriter, r *http.Request) {
 	tx := dbx.MustBegin()
 
 	var targetItem Item
-	err = tx.Get(&targetItem, "SELECT * FROM `items` WHERE `id` = ? AND `status` = ?", rb.ItemID, ItemStatusOnSale)
+	err = tx.Get(&targetItem, "SELECT * FROM `items` WHERE `id` = ? AND `lock_status` = ?", rb.ItemID, 0)
 	if err == sql.ErrNoRows {
 		outputErrorMsg(w, http.StatusForbidden, "item is not for sale")
 		tx.Rollback()
@@ -1620,13 +1621,12 @@ func postBuy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	_, err = tx.Exec("UPDATE `items` SET `buyer_id` = ?, `status` = ?, `updated_at` = ? WHERE `id` = ? AND `status` = ? AND `price` = ?",
+	_, err = tx.Exec("UPDATE `items` SET `buyer_id` = ?, `status` = ?, `updated_at` = ? WHERE `id` = ? AND `lock_status` = ?",
 		buyer.ID,
 		ItemStatusTrading,
 		time.Now(),
 		targetItem.ID,
-		ItemStatusOnSale,
-		targetItem.Price,
+		0,
 	)
 	if err != nil {
 		log.Print(err)
