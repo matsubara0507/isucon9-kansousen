@@ -1631,30 +1631,6 @@ func postBuy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	result, err := tx.Exec("INSERT INTO `transaction_evidences` (`seller_id`, `buyer_id`, `status`, `item_id`, `item_price`) VALUES (?, ?, ?, ?, ?)",
-		targetItem.SellerID,
-		buyer.ID,
-		TransactionEvidenceStatusWaitShipping,
-		targetItem.ID,
-		targetItem.Price,
-	)
-	if err != nil {
-		log.Print(err)
-
-		outputErrorMsg(w, http.StatusInternalServerError, "db error")
-		tx.Rollback()
-		return
-	}
-
-	transactionEvidenceID, err := result.LastInsertId()
-	if err != nil {
-		log.Print(err)
-
-		outputErrorMsg(w, http.StatusInternalServerError, "db error")
-		tx.Rollback()
-		return
-	}
-
 	scr := <-scrCh
 	if scr == nil {
 		outputErrorMsg(w, http.StatusInternalServerError, "failed to request to shipment service")
@@ -1686,6 +1662,25 @@ func postBuy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	tx.Commit()
+
+	result, err := dbx.Exec("INSERT INTO `transaction_evidences` (`seller_id`, `buyer_id`, `status`, `item_id`, `item_price`) VALUES (?, ?, ?, ?, ?)",
+		targetItem.SellerID,
+		buyer.ID,
+		TransactionEvidenceStatusWaitShipping,
+		targetItem.ID,
+		targetItem.Price,
+	)
+	if err != nil {
+		log.Print(err)
+		outputErrorMsg(w, http.StatusInternalServerError, "db error")
+		return
+	}
+	transactionEvidenceID, err := result.LastInsertId()
+	if err != nil {
+		log.Print(err)
+		outputErrorMsg(w, http.StatusInternalServerError, "db error")
+		return
+	}
 
 	_, err = dbx.Exec("INSERT INTO `shippings` (`transaction_evidence_id`, `status`, `item_id`, `reserve_id`, `img_binary`) VALUES (?,?,?,?,?)",
 		transactionEvidenceID,
