@@ -1190,13 +1190,13 @@ func getTransactions(w http.ResponseWriter, r *http.Request) {
 
 	tx.Commit()
 
-	itemDetailCh := make(chan ItemDetail)
 	httpStatusCh := make(chan int)
 	wg := sync.WaitGroup{}
-	itemDetails := []ItemDetail{}
-	for _, item := range items {
+
+	itemDetails := make([]ItemDetail, len(items))
+	for idx, item := range items {
 		wg.Add(1)
-		go func(item Item) {
+		go func(idx int, item Item) {
 			defer wg.Done()
 			seller, ok := mapUsers[item.SellerID]
 			if !ok {
@@ -1264,8 +1264,8 @@ func getTransactions(w http.ResponseWriter, r *http.Request) {
 				}
 			}
 
-			itemDetailCh <- itemDetail
-		}(item)
+			itemDetails[idx] = itemDetail
+		}(idx, item)
 	}
 
 	go func() {
@@ -1273,15 +1273,7 @@ func getTransactions(w http.ResponseWriter, r *http.Request) {
 		httpStatusCh <- http.StatusOK
 	}()
 
-	status := 0
-	for status == 0 {
-		select {
-		case status = <-httpStatusCh:
-		case itemDetail := <-itemDetailCh:
-			itemDetails = append(itemDetails, itemDetail)
-		}
-	}
-	if status != http.StatusOK {
+	if status := <-httpStatusCh; status != http.StatusOK {
 		outputErrorMsg(w, status, "db error")
 		return
 	}
