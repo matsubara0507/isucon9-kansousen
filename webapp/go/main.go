@@ -1598,11 +1598,12 @@ func postBuy(w http.ResponseWriter, r *http.Request) {
 
 	tx := dbx.MustBegin()
 
-	_, err = tx.Exec("UPDATE `items` SET `buyer_id` = ?, `status` = ?, `updated_at` = ? WHERE `id` = ? AND `status` = ?, rb.ItemID, ItemStatusOnSale",
+	_, err = tx.Exec("UPDATE `items` SET `buyer_id` = ?, `status` = ?, `updated_at` = ? WHERE `id` = ? AND `status` = ?",
 		buyer.ID,
 		ItemStatusTrading,
 		time.Now(),
 		rb.ItemID,
+		ItemStatusOnSale,
 	)
 	if err == sql.ErrNoRows {
 		outputErrorMsg(w, http.StatusForbidden, "item is not for sale")
@@ -1617,7 +1618,12 @@ func postBuy(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var targetItem Item
-	err = tx.Get(&targetItem, "SELECT * FROM `items` WHERE `id` = ? AND `buyer_id` = ? FOR UPDATE", targetItem.ID, buyer.ID)
+	err = tx.Get(&targetItem, "SELECT * FROM `items` WHERE `id` = ? AND `buyer_id` = ? FOR UPDATE", rb.ItemID, buyer.ID)
+	if err == sql.ErrNoRows {
+		outputErrorMsg(w, http.StatusForbidden, "item is not for sale")
+		tx.Rollback()
+		return
+	}
 	if err != nil {
 		log.Print(err)
 		outputErrorMsg(w, http.StatusInternalServerError, "db error")
