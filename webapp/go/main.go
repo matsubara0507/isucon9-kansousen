@@ -1936,12 +1936,43 @@ func postComplete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	var transactionEvidenceID int64
+	err = dbx.Get(&transactionEvidenceID, "SELECT `id` FROM `transaction_evidences` WHERE `item_id` = ?",
+		itemID,
+	)
+	if err != nil {
+		log.Print(err)
+		outputErrorMsg(w, http.StatusInternalServerError, "db error")
+		return
+	}
+
+	ssrCh := make(chan *APIShipmentStatusRes)
+	go func() {
+		var reserveID string
+		err = dbx.Get(&reserveID, "SELECT `reserve_id` FROM `shippings` WHERE `transaction_evidence_id` = ?", transactionEvidenceID)
+		if err != nil {
+			log.Print(err)
+			ssrCh <- nil
+			return
+		}
+
+		ssr, err := APIShipmentStatus(getShipmentServiceURL(), &APIShipmentStatusReq{
+			ReserveID: reserveID,
+		})
+		if err != nil {
+			log.Print(err)
+			ssrCh <- nil
+		} else {
+			ssrCh <- ssr
+		}
+	}()
+
 	tx := dbx.MustBegin()
 
-	_, err = tx.Exec("UPDATE `transaction_evidences` SET `status` = ?, `updated_at` = ? WHERE `item_id` = ? AND `status` = ? AND `buyer_id` = ?",
+	_, err = tx.Exec("UPDATE `transaction_evidences` SET `status` = ?, `updated_at` = ? WHERE `id` = ? AND `status` = ? AND `buyer_id` = ?",
 		TransactionEvidenceStatusDone,
 		time.Now(),
-		itemID,
+		transactionEvidenceID,
 		TransactionEvidenceStatusWaitDone,
 		buyer.ID,
 	)
@@ -1956,39 +1987,6 @@ func postComplete(w http.ResponseWriter, r *http.Request) {
 		tx.Rollback()
 		return
 	}
-
-	var transactionEvidenceID int64
-	err = dbx.Get(&transactionEvidenceID, "SELECT `id` FROM `transaction_evidences` WHERE `item_id` = ? FOR UPDATE",
-		itemID,
-	)
-	if err != nil {
-		log.Print(err)
-		outputErrorMsg(w, http.StatusInternalServerError, "db error")
-		tx.Rollback()
-		return
-	}
-
-	var reserveID string
-	err = tx.Get(&reserveID, "SELECT `reserve_id` FROM `shippings` WHERE `transaction_evidence_id` = ?", transactionEvidenceID)
-	if err != nil {
-		log.Print(err)
-		outputErrorMsg(w, http.StatusInternalServerError, "db error")
-		tx.Rollback()
-		return
-	}
-
-	ssrCh := make(chan *APIShipmentStatusRes)
-	go func() {
-		ssr, err := APIShipmentStatus(getShipmentServiceURL(), &APIShipmentStatusReq{
-			ReserveID: reserveID,
-		})
-		if err != nil {
-			log.Print(err)
-			ssrCh <- nil
-		} else {
-			ssrCh <- ssr
-		}
-	}()
 
 	_, err = tx.Exec("UPDATE `shippings` SET `status` = ?, `updated_at` = ? WHERE `transaction_evidence_id` = ?",
 		ShippingsStatusDone,
@@ -2017,6 +2015,8 @@ func postComplete(w http.ResponseWriter, r *http.Request) {
 	ssr := <-ssrCh
 	if ssr == nil {
 		outputErrorMsg(w, http.StatusInternalServerError, "failed to request to shipment service")
+		tx.Rollback()
+		return
 	}
 	if !(ssr.Status == ShippingsStatusDone) {
 		outputErrorMsg(w, http.StatusForbidden, "shipment service側で配送中か配送完了になっていません")
