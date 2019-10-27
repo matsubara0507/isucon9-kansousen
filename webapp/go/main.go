@@ -1118,62 +1118,65 @@ func getTransactions(w http.ResponseWriter, r *http.Request) {
 
 	tx := dbx.MustBegin()
 
-	inQuery, inArgs, err := sqlx.In("SELECT * FROM `transaction_evidences` WHERE `item_id` IN (?)", itemIDs)
-	if err != nil {
-		log.Print(err)
-		outputErrorMsg(w, http.StatusInternalServerError, "sql error")
-		tx.Rollback()
-		return
-	}
-	var transactionEvidences []TransactionEvidence
-	err = tx.Select(&transactionEvidences, inQuery, inArgs...)
-	if err != nil && err != sql.ErrNoRows {
-		// It's able to ignore ErrNoRows
-		log.Print(err)
-		outputErrorMsg(w, http.StatusInternalServerError, "db error")
-		tx.Rollback()
-		return
-	}
-	mapTransactionEvidence := map[int64]TransactionEvidence{}
-	transactionIDs := []int64{} // for collecting shipping
-	for _, transactionEvidence := range transactionEvidences {
-		mapTransactionEvidence[transactionEvidence.ItemID] = transactionEvidence
-		if transactionEvidence.Status != TransactionEvidenceStatusDone {
-			// don't use shipping if done transaction
-			transactionIDs = append(transactionIDs, transactionEvidence.ID)
-		}
-	}
-
-	mapShippingReserveID := map[int64]string{}
-	if len(transactionIDs) != 0 {
-		inQuery, inArgs, err = sqlx.In("SELECT `transaction_evidence_id`, `reserve_id` FROM `shippings` WHERE `transaction_evidence_id` IN (?)", transactionIDs)
+	badHttpStatusCh := make(chan int)
+	mapTransactionEvidenceCh := make(chan map[int64]TransactionEvidence)
+	mapShippingReserveIDCh := make(chan map[int64]string)
+	go func() {
+		inQuery, inArgs, err := sqlx.In("SELECT * FROM `transaction_evidences` WHERE `item_id` IN (?)", itemIDs)
 		if err != nil {
 			log.Print(err)
-			outputErrorMsg(w, http.StatusInternalServerError, "sql error")
-			tx.Rollback()
+			badHttpStatusCh <- http.StatusInternalServerError
 			return
+		}
+		var transactionEvidences []TransactionEvidence
+		err = tx.Select(&transactionEvidences, inQuery, inArgs...)
+		if err != nil && err != sql.ErrNoRows {
+			// It's able to ignore ErrNoRows
+			log.Print(err)
+			badHttpStatusCh <- http.StatusInternalServerError
+			return
+		}
+		mapTransactionEvidence := map[int64]TransactionEvidence{}
+		transactionIDs := []int64{} // for collecting shipping
+		for _, transactionEvidence := range transactionEvidences {
+			mapTransactionEvidence[transactionEvidence.ItemID] = transactionEvidence
+			if transactionEvidence.Status != TransactionEvidenceStatusDone {
+				// don't use shipping if done transaction
+				transactionIDs = append(transactionIDs, transactionEvidence.ID)
+			}
 		}
 
-		rows, err := tx.Query(inQuery, inArgs...)
-		if err != nil {
-			log.Print(err)
-			outputErrorMsg(w, http.StatusInternalServerError, "sql error")
-			tx.Rollback()
-			return
-		}
-		for rows.Next() {
-			var transactionEvidenceID int64
-			var reserveID string
-			if err = rows.Scan(&transactionEvidenceID, &reserveID); err != nil {
-				outputErrorMsg(w, http.StatusInternalServerError, "sql error")
-				tx.Rollback()
+		mapTransactionEvidenceCh <- mapTransactionEvidence
+
+		mapShippingReserveID := map[int64]string{}
+		if len(transactionIDs) != 0 {
+			inQuery, inArgs, err = sqlx.In("SELECT `transaction_evidence_id`, `reserve_id` FROM `shippings` WHERE `transaction_evidence_id` IN (?)", transactionIDs)
+			if err != nil {
+				log.Print(err)
+				badHttpStatusCh <- http.StatusInternalServerError
 				return
 			}
-			mapShippingReserveID[transactionEvidenceID] = reserveID
-		}
-	}
 
-	inQuery, inArgs, err = sqlx.In("SELECT * FROM `items` WHERE `id` IN (?)", itemIDs)
+			rows, err := tx.Query(inQuery, inArgs...)
+			if err != nil {
+				log.Print(err)
+				badHttpStatusCh <- http.StatusInternalServerError
+				return
+			}
+			for rows.Next() {
+				var transactionEvidenceID int64
+				var reserveID string
+				if err = rows.Scan(&transactionEvidenceID, &reserveID); err != nil {
+					badHttpStatusCh <- http.StatusInternalServerError
+					return
+				}
+				mapShippingReserveID[transactionEvidenceID] = reserveID
+			}
+		}
+		mapShippingReserveIDCh <- mapShippingReserveID
+	}()
+
+	inQuery, inArgs, err := sqlx.In("SELECT * FROM `items` WHERE `id` IN (?)", itemIDs)
 	if err != nil {
 		log.Print(err)
 		outputErrorMsg(w, http.StatusInternalServerError, "sql error")
@@ -1194,6 +1197,25 @@ func getTransactions(w http.ResponseWriter, r *http.Request) {
 		tx.Rollback()
 		return
 	}
+
+	var mapTransactionEvidence map[int64]TransactionEvidence
+	select {
+	case mapTransactionEvidence = <-mapTransactionEvidenceCh:
+	case badStatus := <-badHttpStatusCh:
+		outputErrorMsg(w, badStatus, "db error")
+		tx.Rollback()
+		return
+	}
+
+	var mapShippingReserveID map[int64]string
+	select {
+	case mapShippingReserveID = <-mapShippingReserveIDCh:
+	case badStatus := <-badHttpStatusCh:
+		outputErrorMsg(w, badStatus, "db error")
+		tx.Rollback()
+		return
+	}
+
 	tx.Commit()
 
 	itemDetailCh := make(chan ItemDetail)
