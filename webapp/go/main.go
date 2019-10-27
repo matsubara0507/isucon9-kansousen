@@ -1621,7 +1621,7 @@ func postBuy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	_, err = tx.Exec("UPDATE `items` SET `buyer_id` = ?, `status` = ?, `lock_status` = ?, updated_at` = ? WHERE `id` = ? AND `lock_status` = ?",
+	_, err = tx.Exec("UPDATE `items` SET `buyer_id` = ?, `status` = ?, `lock_status` = ?, `updated_at` = ? WHERE `id` = ? AND `lock_status` = ?",
 		buyer.ID,
 		ItemStatusTrading,
 		1,
