@@ -45,7 +45,7 @@ CREATE TABLE `transaction_evidences` (
   `seller_id` bigint NOT NULL,
   `buyer_id` bigint NOT NULL,
   `status` enum('wait_shipping', 'wait_done', 'done') NOT NULL,
-  `item_id` bigint NOT NULL,
+  `item_id` bigint NOT NULL UNIQUE,
   `item_name` varchar(191) NOT NULL,
   `item_price` int unsigned NOT NULL,
   `item_description` text NOT NULL,
