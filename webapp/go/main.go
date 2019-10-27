@@ -1135,10 +1135,13 @@ func getTransactions(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	mapTransactionEvidence := map[int64]TransactionEvidence{}
-	transactionIDs := []int64{}
+	transactionIDs := []int64{} // for collecting shipping
 	for _, transactionEvidence := range transactionEvidences {
 		mapTransactionEvidence[transactionEvidence.ItemID] = transactionEvidence
-		transactionIDs = append(transactionIDs, transactionEvidence.ID)
+		if transactionEvidence.Status != TransactionEvidenceStatusDone {
+			// don't use shipping if done transaction
+			transactionIDs = append(transactionIDs, transactionEvidence.ID)
+		}
 	}
 
 	mapShippingReserveID := map[int64]string{}
