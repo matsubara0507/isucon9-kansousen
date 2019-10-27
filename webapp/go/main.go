@@ -13,6 +13,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strconv"
+	"sync"
 	"time"
 
 	_ "github.com/go-sql-driver/mysql"
@@ -1187,82 +1188,95 @@ func getTransactions(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	itemDetails := []ItemDetail{}
-	for _, item := range items {
-		seller, ok := mapUsers[item.SellerID]
-		if !ok {
-			outputErrorMsg(w, http.StatusNotFound, "seller not found")
-			tx.Rollback()
-			return
-		}
-		category, err := getCategoryByID(item.CategoryID)
-		if err != nil {
-			outputErrorMsg(w, http.StatusNotFound, "category not found")
-			tx.Rollback()
-			return
-		}
+	tx.Commit()
 
-		itemDetail := ItemDetail{
-			ID:       item.ID,
-			SellerID: item.SellerID,
-			Seller:   &seller,
-			// BuyerID
-			// Buyer
-			Status:      item.Status,
-			Name:        item.Name,
-			Price:       item.Price,
-			Description: item.Description,
-			ImageURL:    getImageURL(item.ImageName),
-			CategoryID:  item.CategoryID,
-			// TransactionEvidenceID
-			// TransactionEvidenceStatus
-			// ShippingStatus
-			Category:  &category,
-			CreatedAt: item.CreatedAt.Unix(),
-		}
+	httpStatusCh := make(chan int)
+	wg := sync.WaitGroup{}
 
-		if item.BuyerID != 0 {
-			buyer, ok := mapUsers[item.BuyerID]
+	itemDetails := make([]ItemDetail, len(items))
+	for idx, item := range items {
+		wg.Add(1)
+		go func(idx int, item Item) {
+			defer wg.Done()
+			seller, ok := mapUsers[item.SellerID]
 			if !ok {
-				outputErrorMsg(w, http.StatusNotFound, "buyer not found")
-				tx.Rollback()
+				httpStatusCh <- http.StatusNotFound
 				return
 			}
-			itemDetail.BuyerID = item.BuyerID
-			itemDetail.Buyer = &buyer
-		}
-
-		transactionEvidence, ok := mapTransactionEvidence[item.ID]
-		if ok {
-			itemDetail.TransactionEvidenceID = transactionEvidence.ID
-			itemDetail.TransactionEvidenceStatus = transactionEvidence.Status
-
-			if item.Status == ItemStatusSoldOut {
-				itemDetail.ShippingStatus = ShippingsStatusDone
-			} else {
-				reserveID, ok := mapShippingReserveID[transactionEvidence.ID]
-				if !ok {
-					outputErrorMsg(w, http.StatusNotFound, "shipping not found")
-					tx.Rollback()
-					return
-				}
-				ssr, err := APIShipmentStatus(getShipmentServiceURL(), &APIShipmentStatusReq{
-					ReserveID: reserveID,
-				})
-				if err != nil {
-					log.Print(err)
-					outputErrorMsg(w, http.StatusInternalServerError, "failed to request to shipment service")
-					tx.Rollback()
-					return
-				}
-
-				itemDetail.ShippingStatus = ssr.Status
+			category, err := getCategoryByID(item.CategoryID)
+			if err != nil {
+				httpStatusCh <- http.StatusNotFound
+				return
 			}
-		}
 
-		itemDetails = append(itemDetails, itemDetail)
+			itemDetail := ItemDetail{
+				ID:       item.ID,
+				SellerID: item.SellerID,
+				Seller:   &seller,
+				// BuyerID
+				// Buyer
+				Status:      item.Status,
+				Name:        item.Name,
+				Price:       item.Price,
+				Description: item.Description,
+				ImageURL:    getImageURL(item.ImageName),
+				CategoryID:  item.CategoryID,
+				// TransactionEvidenceID
+				// TransactionEvidenceStatus
+				// ShippingStatus
+				Category:  &category,
+				CreatedAt: item.CreatedAt.Unix(),
+			}
+
+			if item.BuyerID != 0 {
+				buyer, ok := mapUsers[item.BuyerID]
+				if !ok {
+					httpStatusCh <- http.StatusNotFound
+					return
+				}
+				itemDetail.BuyerID = item.BuyerID
+				itemDetail.Buyer = &buyer
+			}
+
+			transactionEvidence, ok := mapTransactionEvidence[item.ID]
+			if ok {
+				itemDetail.TransactionEvidenceID = transactionEvidence.ID
+				itemDetail.TransactionEvidenceStatus = transactionEvidence.Status
+
+				if item.Status == ItemStatusSoldOut {
+					itemDetail.ShippingStatus = ShippingsStatusDone
+				} else {
+					reserveID, ok := mapShippingReserveID[transactionEvidence.ID]
+					if !ok {
+						httpStatusCh <- http.StatusNotFound
+						return
+					}
+					ssr, err := APIShipmentStatus(getShipmentServiceURL(), &APIShipmentStatusReq{
+						ReserveID: reserveID,
+					})
+					if err != nil {
+						log.Print(err)
+						httpStatusCh <- http.StatusInternalServerError
+						return
+					}
+
+					itemDetail.ShippingStatus = ssr.Status
+				}
+			}
+
+			itemDetails[idx] = itemDetail
+		}(idx, item)
 	}
-	tx.Commit()
+
+	go func() {
+		wg.Wait()
+		httpStatusCh <- http.StatusOK
+	}()
+
+	if status := <-httpStatusCh; status != http.StatusOK {
+		outputErrorMsg(w, status, "db error")
+		return
+	}
 
 	hasNext := false
 	if len(itemDetails) > TransactionsPerPage {
@@ -1721,6 +1735,7 @@ func postShip(w http.ResponseWriter, r *http.Request) {
 	}
 
 	transactionEvidence := TransactionEvidence{}
+
 	err = dbx.Get(&transactionEvidence, "SELECT * FROM `transaction_evidences` WHERE `item_id` = ?", itemID)
 	if err == sql.ErrNoRows {
 		outputErrorMsg(w, http.StatusNotFound, "transaction_evidences not found")
@@ -1732,52 +1747,12 @@ func postShip(w http.ResponseWriter, r *http.Request) {
 
 		return
 	}
-
 	if transactionEvidence.SellerID != seller.ID {
 		outputErrorMsg(w, http.StatusForbidden, "権限がありません")
 		return
 	}
 
 	tx := dbx.MustBegin()
-
-	item := Item{}
-	err = tx.Get(&item, "SELECT * FROM `items` WHERE `id` = ? FOR UPDATE", itemID)
-	if err == sql.ErrNoRows {
-		outputErrorMsg(w, http.StatusNotFound, "item not found")
-		tx.Rollback()
-		return
-	}
-	if err != nil {
-		log.Print(err)
-		outputErrorMsg(w, http.StatusInternalServerError, "db error")
-		tx.Rollback()
-		return
-	}
-
-	if item.Status != ItemStatusTrading {
-		outputErrorMsg(w, http.StatusForbidden, "商品が取引中ではありません")
-		tx.Rollback()
-		return
-	}
-
-	err = tx.Get(&transactionEvidence, "SELECT * FROM `transaction_evidences` WHERE `id` = ? FOR UPDATE", transactionEvidence.ID)
-	if err == sql.ErrNoRows {
-		outputErrorMsg(w, http.StatusNotFound, "transaction_evidences not found")
-		tx.Rollback()
-		return
-	}
-	if err != nil {
-		log.Print(err)
-		outputErrorMsg(w, http.StatusInternalServerError, "db error")
-		tx.Rollback()
-		return
-	}
-
-	if transactionEvidence.Status != TransactionEvidenceStatusWaitShipping {
-		outputErrorMsg(w, http.StatusForbidden, "準備ができていません")
-		tx.Rollback()
-		return
-	}
 
 	var reserveID string
 	err = tx.Get(&reserveID, "SELECT `reserve_id` FROM `shippings` WHERE `transaction_evidence_id` = ? FOR UPDATE", transactionEvidence.ID)
