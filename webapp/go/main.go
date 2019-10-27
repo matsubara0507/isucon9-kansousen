@@ -5,6 +5,12 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	_ "github.com/go-sql-driver/mysql"
+	"github.com/gorilla/sessions"
+	"github.com/jmoiron/sqlx"
+	"goji.io"
+	"goji.io/pat"
+	"golang.org/x/crypto/bcrypt"
 	"html/template"
 	"io/ioutil"
 	"log"
@@ -12,16 +18,10 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strconv"
-	"time"
 	"sort"
-
-	_ "github.com/go-sql-driver/mysql"
-	"github.com/gorilla/sessions"
-	"github.com/jmoiron/sqlx"
-	"goji.io"
-	"goji.io/pat"
-	"golang.org/x/crypto/bcrypt"
+	"strconv"
+	"sync"
+	"time"
 )
 
 const (
@@ -1184,13 +1184,6 @@ func getTransactions(w http.ResponseWriter, r *http.Request) {
 		tx.Rollback()
 		return
 	}
-	sort.Slice(items, func(i, j int) bool {
-		if (items[i].CreatedAt == items[j].CreatedAt) {
-			return items[i].ID > items[j].ID
-		} else {
-			return items[i].CreatedAt.Unix() > items[j].CreatedAt.Unix()
-		}
-	})
 
 	mapUsers := <-mapUsersCh
 	if len(mapUsers) == 0 {
@@ -1198,83 +1191,114 @@ func getTransactions(w http.ResponseWriter, r *http.Request) {
 		tx.Rollback()
 		return
 	}
+	tx.Commit()
 
-	itemDetails := []ItemDetail{}
+	itemDetailCh := make(chan ItemDetail)
+	httpStatusCh := make(chan int)
+	wg := sync.WaitGroup{}
 	for _, item := range items {
-		seller, ok := mapUsers[item.SellerID]
-		if !ok {
-			outputErrorMsg(w, http.StatusNotFound, "seller not found")
-			tx.Rollback()
-			return
-		}
-		category, err := getCategoryByID(item.CategoryID)
-		if err != nil {
-			outputErrorMsg(w, http.StatusNotFound, "category not found")
-			tx.Rollback()
-			return
-		}
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
 
-		itemDetail := ItemDetail{
-			ID:       item.ID,
-			SellerID: item.SellerID,
-			Seller:   &seller,
-			// BuyerID
-			// Buyer
-			Status:      item.Status,
-			Name:        item.Name,
-			Price:       item.Price,
-			Description: item.Description,
-			ImageURL:    getImageURL(item.ImageName),
-			CategoryID:  item.CategoryID,
-			// TransactionEvidenceID
-			// TransactionEvidenceStatus
-			// ShippingStatus
-			Category:  &category,
-			CreatedAt: item.CreatedAt.Unix(),
-		}
-
-		if item.BuyerID != 0 {
-			buyer, ok := mapUsers[item.BuyerID]
+			seller, ok := mapUsers[item.SellerID]
 			if !ok {
-				outputErrorMsg(w, http.StatusNotFound, "buyer not found")
-				tx.Rollback()
+				httpStatusCh <- http.StatusNotFound
 				return
 			}
-			itemDetail.BuyerID = item.BuyerID
-			itemDetail.Buyer = &buyer
-		}
 
-		transactionEvidence, ok := mapTransactionEvidence[item.ID]
-		if ok {
-			itemDetail.TransactionEvidenceID = transactionEvidence.ID
-			itemDetail.TransactionEvidenceStatus = transactionEvidence.Status
-
-			if item.Status == ItemStatusSoldOut {
-				itemDetail.ShippingStatus = ShippingsStatusDone
-			} else {
-				reserveID, ok := mapShippingReserveID[transactionEvidence.ID]
-				if !ok {
-					outputErrorMsg(w, http.StatusNotFound, "shipping not found")
-					tx.Rollback()
-					return
-				}
-				ssr, err := APIShipmentStatus(getShipmentServiceURL(), &APIShipmentStatusReq{
-					ReserveID: reserveID,
-				})
-				if err != nil {
-					log.Print(err)
-					outputErrorMsg(w, http.StatusInternalServerError, "failed to request to shipment service")
-					tx.Rollback()
-					return
-				}
-
-				itemDetail.ShippingStatus = ssr.Status
+			category, err := getCategoryByID(item.CategoryID)
+			if err != nil {
+				httpStatusCh <- http.StatusNotFound
+				return
 			}
-		}
 
-		itemDetails = append(itemDetails, itemDetail)
+			itemDetail := ItemDetail{
+				ID:       item.ID,
+				SellerID: item.SellerID,
+				Seller:   &seller,
+				// BuyerID
+				// Buyer
+				Status:      item.Status,
+				Name:        item.Name,
+				Price:       item.Price,
+				Description: item.Description,
+				ImageURL:    getImageURL(item.ImageName),
+				CategoryID:  item.CategoryID,
+				// TransactionEvidenceID
+				// TransactionEvidenceStatus
+				// ShippingStatus
+				Category:  &category,
+				CreatedAt: item.CreatedAt.Unix(),
+			}
+
+			if item.BuyerID != 0 {
+				buyer, ok := mapUsers[item.BuyerID]
+				if !ok {
+					httpStatusCh <- http.StatusNotFound
+					return
+				}
+				itemDetail.BuyerID = item.BuyerID
+				itemDetail.Buyer = &buyer
+			}
+
+			transactionEvidence, ok := mapTransactionEvidence[item.ID]
+			if ok {
+				itemDetail.TransactionEvidenceID = transactionEvidence.ID
+				itemDetail.TransactionEvidenceStatus = transactionEvidence.Status
+
+				if item.Status == ItemStatusSoldOut {
+					itemDetail.ShippingStatus = ShippingsStatusDone
+				} else {
+					reserveID, ok := mapShippingReserveID[transactionEvidence.ID]
+					if !ok {
+						httpStatusCh <- http.StatusNotFound
+						return
+					}
+					ssr, err := APIShipmentStatus(getShipmentServiceURL(), &APIShipmentStatusReq{
+						ReserveID: reserveID,
+					})
+					if err != nil {
+						log.Print(err)
+						httpStatusCh <- http.StatusInternalServerError
+						return
+					}
+
+					itemDetail.ShippingStatus = ssr.Status
+				}
+			}
+
+			itemDetailCh <- itemDetail
+		}()
 	}
-	tx.Commit()
+
+	go func() {
+		wg.Wait()
+		httpStatusCh <- http.StatusOK
+	}()
+
+	itemDetails := make([]ItemDetail, len(items))
+	status := 0
+	for status != 0 {
+		select {
+		case itemDetail := <-itemDetailCh:
+			itemDetails = append(itemDetails, itemDetail)
+		case status = <-httpStatusCh:
+		}
+	}
+
+	if status != http.StatusOK {
+		outputErrorMsg(w, status, "build item detail error")
+		return
+	}
+
+	sort.Slice(itemDetails, func(i, j int) bool {
+		if itemDetails[i].CreatedAt == itemDetails[j].CreatedAt {
+			return itemDetails[i].ID > itemDetails[j].ID
+		} else {
+			return itemDetails[i].CreatedAt > itemDetails[j].CreatedAt
+		}
+	})
 
 	hasNext := false
 	if len(itemDetails) > TransactionsPerPage {
