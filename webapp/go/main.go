@@ -1063,7 +1063,7 @@ func getNewItemsByUserID(userID, itemID, createdAt int64) (items []Item, err err
 	} else {
 		// 1st page
 		rows, err = dbx.Query(
-			"(SELECT `id`, `seller_id`, `buyer_id`, `created_at` FROM `items` WHERE `seller_id` = ?) UNION (SELECT `id`, `seller_id`, `buyer_id`, `created_at` FROM `items` WHERE `buyer` = ?)  ORDER BY `created_at` DESC, `id` DESC LIMIT ?",
+			"(SELECT `id`, `seller_id`, `buyer_id`, `created_at` FROM `items` WHERE `seller_id` = ?) UNION (SELECT `id`, `seller_id`, `buyer_id`, `created_at` FROM `items` WHERE `buyer_id` = ?)  ORDER BY `created_at` DESC, `id` DESC LIMIT ?",
 			userID,
 			userID,
 			TransactionsPerPage+1,
@@ -1119,6 +1119,7 @@ func getTransactions(w http.ResponseWriter, r *http.Request) {
 	// only id, seller_id, buyer_id
 	dumpItems, err := getNewItemsByUserID(userID, itemID, createdAt)
 	if err != nil {
+		log.Print(err)
 		outputErrorMsg(w, http.StatusInternalServerError, "get new items error")
 		return
 	}
