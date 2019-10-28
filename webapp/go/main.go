@@ -70,6 +70,7 @@ var (
 	paymentServiceUrl  string
 	shipmentServiceUrl string
 	mapItemID          map[int64]int64
+	mapShipID          map[int64]int64
 )
 
 type Config struct {
@@ -288,6 +289,7 @@ func init() {
 	paymentServiceUrl = DefaultPaymentServiceURL
 	shipmentServiceUrl = DefaultShipmentServiceURL
 	mapItemID = map[int64]int64{}
+	mapShipID = map[int64]int64{}
 }
 
 func initCategories() [MaxCategoryID + 1]Category {
@@ -359,31 +361,6 @@ func initMapItemID() error {
 		mapItemID[itemID] = sellerID
 	}
 	return nil
-}
-
-func mutexAPIPaymentToken(token string, price int) (httpStatus int, msg string) {
-	pstr, err := APIPaymentToken(getPaymentServiceURL(), &APIPaymentServiceTokenReq{
-		ShopID: PaymentServiceIsucariShopID,
-		Token:  token,
-		APIKey: PaymentServiceIsucariAPIKey,
-		Price:  price,
-	})
-	if err != nil {
-		return http.StatusInternalServerError, "payment service is failed"
-	}
-	if pstr.Status != "ok" {
-		switch pstr.Status {
-		case "invalid":
-			msg = "カード情報に誤りがあります"
-		case "fail":
-			msg = "カードの残高が足りません"
-		default:
-			msg = "想定外のエラー"
-		}
-		return http.StatusBadRequest, msg
-	}
-
-	return http.StatusOK, ""
 }
 
 func main() {
@@ -1138,38 +1115,44 @@ func getTransactions(w http.ResponseWriter, r *http.Request) {
 	}()
 
 	itemIDs := []int64{}
+	transactionIDs := []int64{}
+	mapRevShipID := map[int64]int64{}
 	for _, item := range dumpItems {
 		itemIDs = append(itemIDs, item.ID)
+		if transactionID, ok := mapShipID[item.ID]; ok {
+			mapRevShipID[transactionID] = item.ID
+			transactionIDs = append(transactionIDs, transactionID)
+		}
 	}
 
 	tx := dbx.MustBegin()
 
-	inQuery, inArgs, err := sqlx.In("SELECT * FROM `transaction_evidences` WHERE `item_id` IN (?)", itemIDs)
-	if err != nil {
-		log.Print(err)
-		outputErrorMsg(w, http.StatusInternalServerError, "sql error")
-		tx.Rollback()
-		return
-	}
-	var transactionEvidences []TransactionEvidence
-	err = tx.Select(&transactionEvidences, inQuery, inArgs...)
-	if err != nil && err != sql.ErrNoRows {
-		// It's able to ignore ErrNoRows
-		log.Print(err)
-		outputErrorMsg(w, http.StatusInternalServerError, "db error")
-		tx.Rollback()
-		return
-	}
-	mapTransactionEvidence := map[int64]TransactionEvidence{}
-	transactionIDs := []int64{}
-	for _, transactionEvidence := range transactionEvidences {
-		mapTransactionEvidence[transactionEvidence.ItemID] = transactionEvidence
-		transactionIDs = append(transactionIDs, transactionEvidence.ID)
-	}
+	//inQuery, inArgs, err := sqlx.In("SELECT * FROM `transaction_evidences` WHERE `item_id` IN (?)", itemIDs)
+	//if err != nil {
+	//	log.Print(err)
+	//	outputErrorMsg(w, http.StatusInternalServerError, "sql error")
+	//	tx.Rollback()
+	//	return
+	//}
+	//var transactionEvidences []TransactionEvidence
+	//err = tx.Select(&transactionEvidences, inQuery, inArgs...)
+	//if err != nil && err != sql.ErrNoRows {
+	//	// It's able to ignore ErrNoRows
+	//	log.Print(err)
+	//	outputErrorMsg(w, http.StatusInternalServerError, "db error")
+	//	tx.Rollback()
+	//	return
+	//}
+	//mapTransactionEvidence := map[int64]TransactionEvidence{}
+	//transactionIDs := []int64{}
+	//for _, transactionEvidence := range transactionEvidences {
+	//	mapTransactionEvidence[transactionEvidence.ItemID] = transactionEvidence
+	//	transactionIDs = append(transactionIDs, transactionEvidence.ID)
+	//}
 
-	mapShippingReserveID := map[int64]string{}
+	mapShippingStatus := map[int64]string{}
 	if len(transactionIDs) != 0 {
-		inQuery, inArgs, err = sqlx.In("SELECT `transaction_evidence_id`, `reserve_id` FROM `shippings` WHERE `transaction_evidence_id` IN (?)", transactionIDs)
+		inQuery, inArgs, err := sqlx.In("SELECT `transaction_evidence_id`, `status` FROM `shippings` WHERE `transaction_evidence_id` IN (?)", transactionIDs)
 		if err != nil {
 			log.Print(err)
 			outputErrorMsg(w, http.StatusInternalServerError, "sql error")
@@ -1186,17 +1169,18 @@ func getTransactions(w http.ResponseWriter, r *http.Request) {
 		}
 		for rows.Next() {
 			var transactionEvidenceID int64
-			var reserveID string
-			if err = rows.Scan(&transactionEvidenceID, &reserveID); err != nil {
+			var status string
+			if err = rows.Scan(&transactionEvidenceID, &status); err != nil {
 				outputErrorMsg(w, http.StatusInternalServerError, "sql error")
+				rows.Close()
 				tx.Rollback()
 				return
 			}
-			mapShippingReserveID[transactionEvidenceID] = reserveID
+			mapShippingStatus[mapRevShipID[transactionEvidenceID]] = status
 		}
 	}
 
-	inQuery, inArgs, err = sqlx.In("SELECT * FROM `items` WHERE `id` IN (?) ORDER BY `created_at` DESC, `id` DESC", itemIDs)
+	inQuery, inArgs, err := sqlx.In("SELECT * FROM `items` WHERE `id` IN (?) ORDER BY `created_at` DESC, `id` DESC", itemIDs)
 	if err != nil {
 		log.Print(err)
 		outputErrorMsg(w, http.StatusInternalServerError, "sql error")
@@ -1245,7 +1229,7 @@ func getTransactions(w http.ResponseWriter, r *http.Request) {
 				Seller:   &seller,
 				// BuyerID
 				// Buyer
-				Status:      item.Status,
+				// Status:      item.Status,
 				Name:        item.Name,
 				Price:       item.Price,
 				Description: item.Description,
@@ -1268,30 +1252,28 @@ func getTransactions(w http.ResponseWriter, r *http.Request) {
 				itemDetail.Buyer = &buyer
 			}
 
-			transactionEvidence, ok := mapTransactionEvidence[item.ID]
+			status, ok := mapShippingStatus[item.ID]
 			if ok {
-				itemDetail.TransactionEvidenceID = transactionEvidence.ID
-				itemDetail.TransactionEvidenceStatus = transactionEvidence.Status
-
-				if item.Status == ItemStatusSoldOut {
-					itemDetail.ShippingStatus = ShippingsStatusDone
-				} else {
-					reserveID, ok := mapShippingReserveID[transactionEvidence.ID]
-					if !ok {
-						httpStatusCh <- http.StatusNotFound
-						return
+				itemDetail.TransactionEvidenceID = mapShipID[item.ID]
+				switch status {
+				case ShippingsStatusInitial, ShippingsStatusWaitPickup:
+					itemDetail.Status = ItemStatusTrading
+					itemDetail.TransactionEvidenceStatus = TransactionEvidenceStatusWaitShipping
+				case ShippingsStatusShipping:
+					itemDetail.Status = ItemStatusTrading
+					itemDetail.TransactionEvidenceStatus = TransactionEvidenceStatusWaitDone
+				case ShippingsStatusDone:
+					if item.Status == ItemStatusSoldOut {
+						itemDetail.Status = ItemStatusSoldOut
+						itemDetail.TransactionEvidenceStatus = TransactionEvidenceStatusDone
+					} else {
+						itemDetail.Status = ItemStatusSoldOut
+						itemDetail.TransactionEvidenceStatus = TransactionEvidenceStatusWaitDone
 					}
-					ssr, err := APIShipmentStatus(getShipmentServiceURL(), &APIShipmentStatusReq{
-						ReserveID: reserveID,
-					})
-					if err != nil {
-						log.Print(err)
-						httpStatusCh <- http.StatusInternalServerError
-						return
-					}
-
-					itemDetail.ShippingStatus = ssr.Status
 				}
+				itemDetail.ShippingStatus = status
+			} else {
+				itemDetail.Status = ItemStatusOnSale
 			}
 
 			itemDetails[idx] = itemDetail
@@ -1735,6 +1717,7 @@ func postBuy(w http.ResponseWriter, r *http.Request) {
 		outputErrorMsg(w, http.StatusInternalServerError, "db error")
 		return
 	}
+	mapShipID[targetItem.ID] = transactionEvidenceID
 
 	w.Header().Set("Content-Type", "application/json;charset=utf-8")
 	json.NewEncoder(w).Encode(resBuy{TransactionEvidenceID: transactionEvidenceID})
