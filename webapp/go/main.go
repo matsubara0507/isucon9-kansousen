@@ -1607,7 +1607,13 @@ func postBuy(w http.ResponseWriter, r *http.Request) {
 
 	tx := dbx.MustBegin()
 
-	retry:
+retry:
+
+	if _, ok := mapShipID[rb.ItemID]; ok {
+		outputErrorMsg(w, http.StatusForbidden, "item is not for sale")
+		tx.Rollback()
+		return
+	}
 
 	var targetItem Item
 	err = tx.Get(&targetItem,
@@ -1621,23 +1627,9 @@ func postBuy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err != nil && err.Error() == "Error 3024: Query execution was interrupted, maximum statement execution time exceeded" {
-		log.Printf("retry: %d %d", rb.ItemID, buyer.ID)
+		//log.Printf("retry: %d %d", rb.ItemID, buyer.ID)
 		goto retry
 	}
-	if err != nil {
-		log.Print(err)
-		outputErrorMsg(w, http.StatusInternalServerError, "db error")
-		tx.Rollback()
-		return
-	}
-
-	_, err = tx.Exec("UPDATE `items` SET `buyer_id` = ?, `status` = ?, `updated_at` = ? WHERE `id` = ? AND `status` = ? ",
-		buyer.ID,
-		ItemStatusTrading,
-		time.Now(),
-		rb.ItemID,
-		ItemStatusOnSale,
-	)
 	if err != nil {
 		log.Print(err)
 		outputErrorMsg(w, http.StatusInternalServerError, "db error")
@@ -1672,6 +1664,22 @@ func postBuy(w http.ResponseWriter, r *http.Request) {
 		default:
 			outputErrorMsg(w, http.StatusBadRequest, "想定外のエラー")
 		}
+		tx.Rollback()
+		return
+	}
+
+	mapShipID[targetItem.ID] = -1
+
+	_, err = tx.Exec("UPDATE `items` SET `buyer_id` = ?, `status` = ?, `updated_at` = ? WHERE `id` = ? AND `status` = ? ",
+		buyer.ID,
+		ItemStatusTrading,
+		time.Now(),
+		rb.ItemID,
+		ItemStatusOnSale,
+	)
+	if err != nil {
+		log.Print(err)
+		outputErrorMsg(w, http.StatusInternalServerError, "db error")
 		tx.Rollback()
 		return
 	}
