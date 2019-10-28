@@ -711,12 +711,16 @@ func getNewItems(w http.ResponseWriter, r *http.Request) {
 	if itemID > 0 && createdAt > 0 {
 		// paging
 		err := dbx.Select(&items,
-			"SELECT * FROM `items` WHERE `status` IN (?,?) AND (`created_at` < ?  OR (`created_at` <= ? AND `id` < ?)) ORDER BY `created_at` DESC, `id` DESC LIMIT ?",
+			"(SELECT * FROM `items` WHERE `status` IN (?,?) AND `created_at` < ? ORDER BY `created_at` DESC, `id` DESC LIMIT ?) UNION ALL (SELECT * FROM `items` WHERE `status` IN (?,?) AND `created_at` = ? AND `id` < ? ORDER BY `id` DESC LIMIT ?) ORDER BY `created_at` DESC, `id` DESC LIMIT ?",
 			ItemStatusOnSale,
 			ItemStatusSoldOut,
 			time.Unix(createdAt, 0),
+			ItemsPerPage+1,
+			ItemStatusOnSale,
+			ItemStatusSoldOut,
 			time.Unix(createdAt, 0),
 			itemID,
+			ItemsPerPage+1,
 			ItemsPerPage+1,
 		)
 		if err != nil {
@@ -833,13 +837,18 @@ func getNewCategoryItems(w http.ResponseWriter, r *http.Request) {
 	if itemID > 0 && createdAt > 0 {
 		// paging
 		inQuery, inArgs, err = sqlx.In(
-			"SELECT * FROM `items` WHERE `status` IN (?,?) AND category_id IN (?) AND (`created_at` < ?  OR (`created_at` <= ? AND `id` < ?)) ORDER BY `created_at` DESC, `id` DESC LIMIT ?",
+			"(SELECT * FROM `items` WHERE `status` IN (?,?) AND category_id IN (?) AND `created_at` < ? ORDER BY `created_at` DESC, `id` DESC LIMIT ?) UNION ALL (SELECT * FROM `items` WHERE `status` IN (?,?) AND category_id IN (?) AND `created_at` = ? AND `id` < ? ORDER BY `id` DESC LIMIT ?) ORDER BY `created_at` DESC, `id` DESC LIMIT ?",
 			ItemStatusOnSale,
 			ItemStatusSoldOut,
 			categoryIDs,
 			time.Unix(createdAt, 0),
+			ItemsPerPage+1,
+			ItemStatusOnSale,
+			ItemStatusSoldOut,
+			categoryIDs,
 			time.Unix(createdAt, 0),
 			itemID,
+			ItemsPerPage+1,
 			ItemsPerPage+1,
 		)
 		if err != nil {
@@ -961,11 +970,14 @@ func getUserItems(w http.ResponseWriter, r *http.Request) {
 	if itemID > 0 && createdAt > 0 {
 		// paging
 		err := dbx.Select(&items,
-			"SELECT * FROM `items` WHERE `seller_id` = ? AND (`created_at` < ?  OR (`created_at` <= ? AND `id` < ?)) ORDER BY `created_at` DESC, `id` DESC LIMIT ?",
+			"(SELECT * FROM `items` WHERE `seller_id` = ? AND  `created_at` < ? ORDER BY `created_at` DESC, `id` DESC LIMIT ?) UNION ALL (SELECT * FROM `items` WHERE `seller_id` = ? AND `created_at` = ? AND `id` < ? ORDER BY `id` DESC LIMIT ?) ORDER BY `created_at` DESC, `id` DESC LIMIT ?",
 			userSimple.ID,
 			time.Unix(createdAt, 0),
+			ItemsPerPage+1,
+			userSimple.ID,
 			time.Unix(createdAt, 0),
 			itemID,
+			ItemsPerPage+1,
 			ItemsPerPage+1,
 		)
 		if err != nil {
@@ -1033,15 +1045,28 @@ func getNewItemsByUserID(userID, itemID, createdAt int64) (items []Item, err err
 	var rows *sql.Rows
 	if itemID > 0 && createdAt > 0 {
 		rows, err = dbx.Query(
-			"(SELECT `id`, `seller_id`, `buyer_id`, `created_at` FROM `items` WHERE `seller_id` = ? AND (`created_at` < ? OR (`created_at` <= ? AND `id` < ?))) UNION (SELECT `id`, `seller_id`, `buyer_id`, `created_at` FROM `items` WHERE `buyer_id` = ? AND (`created_at` < ? OR (`created_at` <= ? AND `id` < ?))) ORDER BY `created_at` DESC, `id` DESC LIMIT ?",
+			"((SELECT `id`, `seller_id`, `buyer_id`, `created_at` FROM `items` WHERE `seller_id` = ? AND `created_at` < ? ORDER BY `created_at` DESC, `id` DESC LIMIT ?)"+
+				" UNION ALL "+
+				"(SELECT `id`, `seller_id`, `buyer_id`, `created_at` FROM `items` WHERE `seller_id` = ? AND `created_at` = ? AND `id` < ? ORDER BY `id` DESC LIMIT ?))"+
+				" UNION "+
+				"((SELECT `id`, `seller_id`, `buyer_id`, `created_at` FROM `items` WHERE `buyer_id` = ? AND `created_at` < ? ORDER BY `created_at` DESC, `id` DESC LIMIT ?)"+
+				" UNION ALL "+
+				"(SELECT `id`, `seller_id`, `buyer_id`, `created_at` FROM `items` WHERE `buyer_id` = ? AND `created_at` <= ? AND `id` < ? ORDER BY `id` DESC LIMIT ?))"+
+				" ORDER BY `created_at` DESC, `id` DESC LIMIT ?",
 			userID,
 			time.Unix(createdAt, 0),
-			time.Unix(createdAt, 0),
-			itemID,
+			TransactionsPerPage+1,
 			userID,
 			time.Unix(createdAt, 0),
+			itemID,
+			TransactionsPerPage+1,
+			userID,
+			time.Unix(createdAt, 0),
+			TransactionsPerPage+1,
+			userID,
 			time.Unix(createdAt, 0),
 			itemID,
+			TransactionsPerPage+1,
 			TransactionsPerPage+1,
 		)
 	} else {
