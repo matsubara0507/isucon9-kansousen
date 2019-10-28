@@ -1607,16 +1607,22 @@ func postBuy(w http.ResponseWriter, r *http.Request) {
 
 	tx := dbx.MustBegin()
 
+	retry:
+
 	var targetItem Item
 	err = tx.Get(&targetItem,
-		"SELECT /*+ MAX_EXECUTION_TIME(5000) */ * FROM `items` WHERE `id` = ? AND `status` = ? FOR UPDATE",
+		"SELECT /*+ MAX_EXECUTION_TIME(1000) */ * FROM `items` WHERE `id` = ? AND `status` = ? FOR UPDATE",
 		rb.ItemID,
 		ItemStatusOnSale,
 	)
-	if err == sql.ErrNoRows || err.Error() == "Error 3024: Query execution was interrupted, maximum statement execution time exceeded" {
+	if err == sql.ErrNoRows {
 		outputErrorMsg(w, http.StatusForbidden, "item is not for sale")
 		tx.Rollback()
 		return
+	}
+	if err != nil && err.Error() == "Error 3024: Query execution was interrupted, maximum statement execution time exceeded" {
+		log.Printf("retry: %d %d", rb.ItemID, buyer.ID)
+		goto retry
 	}
 	if err != nil {
 		log.Print(err)
@@ -1669,6 +1675,7 @@ func postBuy(w http.ResponseWriter, r *http.Request) {
 		tx.Rollback()
 		return
 	}
+
 	tx.Commit()
 
 	result, err := dbx.Exec("INSERT INTO `transaction_evidences` (`seller_id`, `buyer_id`, `status`, `item_id`, `item_price`) VALUES (?, ?, ?, ?, ?)",
