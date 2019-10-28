@@ -1052,8 +1052,11 @@ func getNewItemsByUserID(userID, itemID, createdAt int64) (items []Item, err err
 	var rows *sql.Rows
 	if itemID > 0 && createdAt > 0 {
 		rows, err = dbx.Query(
-			"(SELECT `id`, `seller_id`, `buyer_id`, `created_at` FROM `items` WHERE `seller_id` = ?) UNION (SELECT `id`, `seller_id`, `buyer_id`, `created_at` FROM `items` WHERE `buyer_id` = ?) WHERE `created_at` < ?  OR (`created_at` <= ? AND `id` < ?) ORDER BY `created_at` DESC, `id` DESC LIMIT ?",
+			"(SELECT `id`, `seller_id`, `buyer_id`, `created_at` FROM `items` WHERE `seller_id` = ? AND (`created_at` < ? OR (`created_at` <= ? AND `id` < ?))) UNION (SELECT `id`, `seller_id`, `buyer_id`, `created_at` FROM `items` WHERE `buyer_id` = ? AND (`created_at` < ? OR (`created_at` <= ? AND `id` < ?))) ORDER BY `created_at` DESC, `id` DESC LIMIT ?",
 			userID,
+			time.Unix(createdAt, 0),
+			time.Unix(createdAt, 0),
+			itemID,
 			userID,
 			time.Unix(createdAt, 0),
 			time.Unix(createdAt, 0),
