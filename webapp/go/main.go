@@ -1639,9 +1639,8 @@ func postBuy(w http.ResponseWriter, r *http.Request) {
 
 	var targetItem Item
 	err = tx.Get(&targetItem,
-		"SELECT * FROM `items` WHERE `id` = ? AND `buyer_id` = ? AND `status` = ? AND `status` = ? FOR UPDATE",
+		"SELECT * FROM `items` WHERE `id` = ? AND `status` = ? FOR UPDATE",
 		rb.ItemID,
-		buyer.ID,
 		ItemStatusOnSale,
 	)
 	if err == sql.ErrNoRows {
