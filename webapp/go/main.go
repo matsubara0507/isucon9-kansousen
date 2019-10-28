@@ -1609,15 +1609,29 @@ func postBuy(w http.ResponseWriter, r *http.Request) {
 
 	var targetItem Item
 	err = tx.Get(&targetItem,
-		"SELECT * FROM `items` WHERE `id` = ? AND `status` = ? FOR UPDATE",
+		"SELECT /*+ MAX_EXECUTION_TIME(5000) */ * FROM `items` WHERE `id` = ? AND `status` = ? FOR UPDATE",
 		rb.ItemID,
 		ItemStatusOnSale,
 	)
-	if err == sql.ErrNoRows {
+	if err == sql.ErrNoRows || err.Error() == "Error 3024: Query execution was interrupted, maximum statement execution time exceeded" {
 		outputErrorMsg(w, http.StatusForbidden, "item is not for sale")
 		tx.Rollback()
 		return
 	}
+	if err != nil {
+		log.Print(err)
+		outputErrorMsg(w, http.StatusInternalServerError, "db error")
+		tx.Rollback()
+		return
+	}
+
+	_, err = tx.Exec("UPDATE `items` SET `buyer_id` = ?, `status` = ?, `updated_at` = ? WHERE `id` = ? AND `status` = ? ",
+		buyer.ID,
+		ItemStatusTrading,
+		time.Now(),
+		rb.ItemID,
+		ItemStatusOnSale,
+	)
 	if err != nil {
 		log.Print(err)
 		outputErrorMsg(w, http.StatusInternalServerError, "db error")
@@ -1656,18 +1670,6 @@ func postBuy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	tx.Commit()
-
-	_, err = dbx.Exec("UPDATE `items` SET `buyer_id` = ?, `status` = ?, `updated_at` = ? WHERE `id` = ? ",
-		buyer.ID,
-		ItemStatusTrading,
-		time.Now(),
-		rb.ItemID,
-	)
-	if err != nil {
-		log.Print(err)
-		outputErrorMsg(w, http.StatusInternalServerError, "db error")
-		return
-	}
 
 	result, err := dbx.Exec("INSERT INTO `transaction_evidences` (`seller_id`, `buyer_id`, `status`, `item_id`, `item_price`) VALUES (?, ?, ?, ?, ?)",
 		targetItem.SellerID,
