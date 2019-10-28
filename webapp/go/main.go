@@ -1125,46 +1125,19 @@ func getTransactions(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	tx := dbx.MustBegin()
-
-	//inQuery, inArgs, err := sqlx.In("SELECT * FROM `transaction_evidences` WHERE `item_id` IN (?)", itemIDs)
-	//if err != nil {
-	//	log.Print(err)
-	//	outputErrorMsg(w, http.StatusInternalServerError, "sql error")
-	//	tx.Rollback()
-	//	return
-	//}
-	//var transactionEvidences []TransactionEvidence
-	//err = tx.Select(&transactionEvidences, inQuery, inArgs...)
-	//if err != nil && err != sql.ErrNoRows {
-	//	// It's able to ignore ErrNoRows
-	//	log.Print(err)
-	//	outputErrorMsg(w, http.StatusInternalServerError, "db error")
-	//	tx.Rollback()
-	//	return
-	//}
-	//mapTransactionEvidence := map[int64]TransactionEvidence{}
-	//transactionIDs := []int64{}
-	//for _, transactionEvidence := range transactionEvidences {
-	//	mapTransactionEvidence[transactionEvidence.ItemID] = transactionEvidence
-	//	transactionIDs = append(transactionIDs, transactionEvidence.ID)
-	//}
-
 	mapShippingStatus := map[int64]string{}
 	if len(transactionIDs) != 0 {
 		inQuery, inArgs, err := sqlx.In("SELECT `transaction_evidence_id`, `status` FROM `shippings` WHERE `transaction_evidence_id` IN (?)", transactionIDs)
 		if err != nil {
 			log.Print(err)
 			outputErrorMsg(w, http.StatusInternalServerError, "sql error")
-			tx.Rollback()
 			return
 		}
 
-		rows, err := tx.Query(inQuery, inArgs...)
+		rows, err := dbx.Query(inQuery, inArgs...)
 		if err != nil {
 			log.Print(err)
 			outputErrorMsg(w, http.StatusInternalServerError, "sql error")
-			tx.Rollback()
 			return
 		}
 		for rows.Next() {
@@ -1173,7 +1146,6 @@ func getTransactions(w http.ResponseWriter, r *http.Request) {
 			if err = rows.Scan(&transactionEvidenceID, &status); err != nil {
 				outputErrorMsg(w, http.StatusInternalServerError, "sql error")
 				rows.Close()
-				tx.Rollback()
 				return
 			}
 			mapShippingStatus[mapRevShipID[transactionEvidenceID]] = status
@@ -1184,25 +1156,20 @@ func getTransactions(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		log.Print(err)
 		outputErrorMsg(w, http.StatusInternalServerError, "sql error")
-		tx.Rollback()
 		return
 	}
 	var items []Item
-	if err = tx.Select(&items, inQuery, inArgs...); err != nil {
+	if err = dbx.Select(&items, inQuery, inArgs...); err != nil {
 		log.Print(err)
 		outputErrorMsg(w, http.StatusInternalServerError, "sql error")
-		tx.Rollback()
 		return
 	}
 
 	mapUsers := <-mapUsersCh
 	if len(mapUsers) == 0 {
 		outputErrorMsg(w, http.StatusNotFound, "user not found")
-		tx.Rollback()
 		return
 	}
-
-	tx.Commit()
 
 	httpStatusCh := make(chan int)
 	wg := sync.WaitGroup{}
