@@ -361,6 +361,31 @@ func initMapItemID() error {
 	return nil
 }
 
+func mutexAPIPaymentToken(token string, price int) (httpStatus int, msg string) {
+	pstr, err := APIPaymentToken(getPaymentServiceURL(), &APIPaymentServiceTokenReq{
+		ShopID: PaymentServiceIsucariShopID,
+		Token:  token,
+		APIKey: PaymentServiceIsucariAPIKey,
+		Price:  price,
+	})
+	if err != nil {
+		return http.StatusInternalServerError, "payment service is failed"
+	}
+	if pstr.Status != "ok" {
+		switch pstr.Status {
+		case "invalid":
+			msg = "カード情報に誤りがあります"
+		case "fail":
+			msg = "カードの残高が足りません"
+		default:
+			msg = "想定外のエラー"
+		}
+		return http.StatusBadRequest, msg
+	}
+
+	return http.StatusOK, ""
+}
+
 func main() {
 	host := os.Getenv("MYSQL_HOST")
 	if host == "" {
@@ -1612,27 +1637,13 @@ func postBuy(w http.ResponseWriter, r *http.Request) {
 
 	tx := dbx.MustBegin()
 
-	_, err = tx.Exec("UPDATE `items` SET `buyer_id` = ?, `status` = ?, `updated_at` = ? WHERE `id` = ? AND `status` = ?",
-		buyer.ID,
-		ItemStatusTrading,
-		time.Now(),
+	var targetItem Item
+	err = tx.Get(&targetItem,
+		"SELECT * FROM `items` WHERE `id` = ? AND `buyer_id` = ? AND `status` = ? AND `status` = ? FOR UPDATE",
 		rb.ItemID,
+		buyer.ID,
 		ItemStatusOnSale,
 	)
-	if err == sql.ErrNoRows {
-		outputErrorMsg(w, http.StatusForbidden, "item is not for sale")
-		tx.Rollback()
-		return
-	}
-	if err != nil {
-		log.Print(err)
-		outputErrorMsg(w, http.StatusInternalServerError, "db error")
-		tx.Rollback()
-		return
-	}
-
-	var targetItem Item
-	err = tx.Get(&targetItem, "SELECT * FROM `items` WHERE `id` = ? AND `buyer_id` = ? FOR UPDATE", rb.ItemID, buyer.ID)
 	if err == sql.ErrNoRows {
 		outputErrorMsg(w, http.StatusForbidden, "item is not for sale")
 		tx.Rollback()
@@ -1676,6 +1687,18 @@ func postBuy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	tx.Commit()
+
+	_, err = dbx.Exec("UPDATE `items` SET `buyer_id` = ?, `status` = ?, `updated_at` = ? WHERE `id` = ? ",
+		buyer.ID,
+		ItemStatusTrading,
+		time.Now(),
+		rb.ItemID,
+	)
+	if err != nil {
+		log.Print(err)
+		outputErrorMsg(w, http.StatusInternalServerError, "db error")
+		return
+	}
 
 	result, err := dbx.Exec("INSERT INTO `transaction_evidences` (`seller_id`, `buyer_id`, `status`, `item_id`, `item_price`) VALUES (?, ?, ?, ?, ?)",
 		targetItem.SellerID,
