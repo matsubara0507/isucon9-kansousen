@@ -348,6 +348,8 @@ func initCategories() [MaxCategoryID + 1]Category {
 }
 
 func initMapItemID() error {
+	mapItemID = map[int64]int64{}
+
 	rows, err := dbx.Query("SELECT `id`, `seller_id` FROM `items`")
 	if err != nil {
 		return err
@@ -644,6 +646,8 @@ func postInitialize(w http.ResponseWriter, r *http.Request) {
 		outputErrorMsg(w, http.StatusInternalServerError, "initialize mapItemID error")
 		return
 	}
+
+	mapShipID = map[int64]int64{}
 
 	_, err = dbx.Exec(
 		"INSERT INTO `configs` (`name`, `val`) VALUES (?, ?) ON DUPLICATE KEY UPDATE `val` = VALUES(`val`)",
