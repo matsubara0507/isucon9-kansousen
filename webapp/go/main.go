@@ -1125,31 +1125,35 @@ func getTransactions(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	mapShippingStatus := map[int64]string{}
+	mapShipStatCh := make(chan map[int64]string)
 	if len(transactionIDs) != 0 {
-		inQuery, inArgs, err := sqlx.In("SELECT `transaction_evidence_id`, `status` FROM `shippings` WHERE `transaction_evidence_id` IN (?)", transactionIDs)
-		if err != nil {
-			log.Print(err)
-			outputErrorMsg(w, http.StatusInternalServerError, "sql error")
-			return
-		}
-
-		rows, err := dbx.Query(inQuery, inArgs...)
-		if err != nil {
-			log.Print(err)
-			outputErrorMsg(w, http.StatusInternalServerError, "sql error")
-			return
-		}
-		for rows.Next() {
-			var transactionEvidenceID int64
-			var status string
-			if err = rows.Scan(&transactionEvidenceID, &status); err != nil {
-				outputErrorMsg(w, http.StatusInternalServerError, "sql error")
-				rows.Close()
+		go func() {
+			mapShippingStatus := map[int64]string{}
+			inQuery, inArgs, err := sqlx.In("SELECT `transaction_evidence_id`, `status` FROM `shippings` WHERE `transaction_evidence_id` IN (?)", transactionIDs)
+			if err != nil {
+				log.Print(err)
+				mapShipStatCh <- map[int64]string{}
 				return
 			}
-			mapShippingStatus[mapRevShipID[transactionEvidenceID]] = status
-		}
+
+			rows, err := dbx.Query(inQuery, inArgs...)
+			if err != nil {
+				log.Print(err)
+				mapShipStatCh <- map[int64]string{}
+				return
+			}
+			for rows.Next() {
+				var transactionEvidenceID int64
+				var status string
+				if err = rows.Scan(&transactionEvidenceID, &status); err != nil {
+					rows.Close()
+					mapShipStatCh <- map[int64]string{}
+					return
+				}
+				mapShippingStatus[mapRevShipID[transactionEvidenceID]] = status
+			}
+			mapShipStatCh <- mapShippingStatus
+		}()
 	}
 
 	inQuery, inArgs, err := sqlx.In("SELECT * FROM `items` WHERE `id` IN (?) ORDER BY `created_at` DESC, `id` DESC", itemIDs)
@@ -1169,6 +1173,14 @@ func getTransactions(w http.ResponseWriter, r *http.Request) {
 	if len(mapUsers) == 0 {
 		outputErrorMsg(w, http.StatusNotFound, "user not found")
 		return
+	}
+
+	mapShippingStatus := map[int64]string{}
+	if len(transactionIDs) != 0 {
+		if mapShippingStatus = <-mapShipStatCh; len(mapShippingStatus) == 0 {
+			outputErrorMsg(w, http.StatusInternalServerError, "sql error")
+			return
+		}
 	}
 
 	httpStatusCh := make(chan int)
