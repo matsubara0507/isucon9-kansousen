@@ -1377,18 +1377,9 @@ func getItem(w http.ResponseWriter, r *http.Request) {
 		itemDetail.BuyerID = item.BuyerID
 		itemDetail.Buyer = &buyer
 
-		transactionEvidence := TransactionEvidence{}
-		err = dbx.Get(&transactionEvidence, "SELECT * FROM `transaction_evidences` WHERE `item_id` = ?", item.ID)
-		if err != nil && err != sql.ErrNoRows {
-			// It's able to ignore ErrNoRows
-			log.Print(err)
-			outputErrorMsg(w, http.StatusInternalServerError, "db error")
-			return
-		}
-
-		if transactionEvidence.ID > 0 {
+		if transactionEvidenceID, ok := mapShipID[item.ID]; ok {
 			var status string
-			err = dbx.Get(&status, "SELECT `status` FROM `shippings` WHERE `transaction_evidence_id` = ?", transactionEvidence.ID)
+			err = dbx.Get(&status, "SELECT `status` FROM `shippings` WHERE `transaction_evidence_id` = ?", transactionEvidenceID)
 			if err == sql.ErrNoRows {
 				outputErrorMsg(w, http.StatusNotFound, "shipping not found")
 				return
@@ -1399,8 +1390,23 @@ func getItem(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 
-			itemDetail.TransactionEvidenceID = transactionEvidence.ID
-			itemDetail.TransactionEvidenceStatus = transactionEvidence.Status
+			itemDetail.TransactionEvidenceID = mapShipID[item.ID]
+			switch status {
+			case ShippingsStatusInitial, ShippingsStatusWaitPickup:
+				itemDetail.Status = ItemStatusTrading
+				itemDetail.TransactionEvidenceStatus = TransactionEvidenceStatusWaitShipping
+			case ShippingsStatusShipping:
+				itemDetail.Status = ItemStatusTrading
+				itemDetail.TransactionEvidenceStatus = TransactionEvidenceStatusWaitDone
+			case ShippingsStatusDone:
+				if item.Status == ItemStatusSoldOut {
+					itemDetail.Status = ItemStatusSoldOut
+					itemDetail.TransactionEvidenceStatus = TransactionEvidenceStatusDone
+				} else {
+					itemDetail.Status = ItemStatusSoldOut
+					itemDetail.TransactionEvidenceStatus = TransactionEvidenceStatusWaitDone
+				}
+			}
 			itemDetail.ShippingStatus = status
 		}
 	}
