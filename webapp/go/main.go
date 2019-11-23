@@ -1958,11 +1958,9 @@ func postSell(w http.ResponseWriter, r *http.Request) {
 	}
 
 	now := time.Now()
-	_, err = tx.Exec("UPDATE `users` SET `num_sell_items`=?, `last_bump`=? WHERE `id`=? AND `num_sell_items` = ?",
-		seller.NumSellItems+1,
+	_, err = tx.Exec("UPDATE `users` SET `num_sell_items` = `num_sell_items` + 1, `last_bump` = ? WHERE `id` = ?",
 		now,
 		seller.ID,
-		seller.NumSellItems,
 	)
 	if err != nil {
 		log.Print(err)
