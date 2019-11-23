@@ -2042,11 +2042,9 @@ func postBump(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	tx := dbx.MustBegin()
-
 	targetItem.CreatedAt = now
 	targetItem.UpdatedAt = now
-	_, err = tx.Exec("UPDATE `items` SET `created_at`=?, `updated_at`=? WHERE `id` = ?",
+	_, err = dbx.Exec("UPDATE `items` SET `created_at`=?, `updated_at`=? WHERE `id` = ?",
 		now,
 		now,
 		targetItem.ID,
@@ -2054,29 +2052,25 @@ func postBump(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		log.Print(err)
 		outputErrorMsg(w, http.StatusInternalServerError, "db error")
-		tx.Rollback()
 		return
 	}
 
-	_, err = tx.Exec("UPDATE `users` SET `last_bump`=? WHERE `id` = ?",
+	_, err = dbx.Exec("UPDATE `users` SET `last_bump`=? WHERE `id` = ?",
 		now,
 		seller.ID,
 	)
 	if err != nil {
 		log.Print(err)
 		outputErrorMsg(w, http.StatusInternalServerError, "db error")
-		tx.Rollback()
 		return
 	}
-
-	tx.Commit()
 
 	w.Header().Set("Content-Type", "application/json;charset=utf-8")
 	json.NewEncoder(w).Encode(&resItemEdit{
 		ItemID:        targetItem.ID,
 		ItemPrice:     targetItem.Price,
-		ItemCreatedAt: targetItem.CreatedAt.Unix(),
-		ItemUpdatedAt: targetItem.UpdatedAt.Unix(),
+		ItemCreatedAt: now.Unix(),
+		ItemUpdatedAt: now.Unix(),
 	})
 }
 
