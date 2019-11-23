@@ -1659,7 +1659,6 @@ func postShipDone(w http.ResponseWriter, r *http.Request) {
 		time.Now(),
 		transactionEvidence.ID,
 		shipping.Status,
-		transactionEvidence.Status,
 	)
 	if err != nil {
 		log.Print(err)
@@ -1669,10 +1668,11 @@ func postShipDone(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	_, err = tx.Exec("UPDATE `transaction_evidences` SET `status` = ?, `updated_at` = ? WHERE `id` = ? AND ",
+	_, err = tx.Exec("UPDATE `transaction_evidences` SET `status` = ?, `updated_at` = ? WHERE `id` = ? AND `status` = ?",
 		TransactionEvidenceStatusWaitDone,
 		time.Now(),
 		transactionEvidence.ID,
+		transactionEvidence.Status,
 	)
 	if err != nil {
 		log.Print(err)
@@ -1792,7 +1792,7 @@ func postComplete(w http.ResponseWriter, r *http.Request) {
 		ShippingsStatusDone,
 		time.Now(),
 		transactionEvidence.ID,
-		ssr.Status,
+		shipping.Status,
 	)
 	if err != nil {
 		log.Print(err)
@@ -1919,21 +1919,19 @@ func postSell(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	tx := dbx.MustBegin()
-
 	seller := User{}
-	err = tx.Get(&seller, "SELECT * FROM `users` WHERE `id` = ? FOR UPDATE", user.ID)
+	err = dbx.Get(&seller, "SELECT * FROM `users` WHERE `id` = ?", user.ID)
 	if err == sql.ErrNoRows {
 		outputErrorMsg(w, http.StatusNotFound, "user not found")
-		tx.Rollback()
 		return
 	}
 	if err != nil {
 		log.Print(err)
 		outputErrorMsg(w, http.StatusInternalServerError, "db error")
-		tx.Rollback()
 		return
 	}
+
+	tx := dbx.MustBegin()
 
 	result, err := tx.Exec("INSERT INTO `items` (`seller_id`, `status`, `name`, `price`, `description`,`image_name`,`category_id`) VALUES (?, ?, ?, ?, ?, ?, ?)",
 		seller.ID,
@@ -1960,10 +1958,11 @@ func postSell(w http.ResponseWriter, r *http.Request) {
 	}
 
 	now := time.Now()
-	_, err = tx.Exec("UPDATE `users` SET `num_sell_items`=?, `last_bump`=? WHERE `id`=?",
+	_, err = tx.Exec("UPDATE `users` SET `num_sell_items`=?, `last_bump`=? WHERE `id`=? AND `num_sell_items` = ?",
 		seller.NumSellItems+1,
 		now,
 		seller.ID,
+		seller.NumSellItems,
 	)
 	if err != nil {
 		log.Print(err)
