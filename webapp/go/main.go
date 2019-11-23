@@ -2046,11 +2046,10 @@ func postBump(w http.ResponseWriter, r *http.Request) {
 
 	targetItem.CreatedAt = now
 	targetItem.UpdatedAt = now
-	_, err = tx.Exec("UPDATE `items` SET `created_at`=?, `updated_at`=? WHERE id=? AND `status` = ?",
+	_, err = tx.Exec("UPDATE `items` SET `created_at`=?, `updated_at`=? WHERE `id` = ?",
 		now,
 		now,
 		targetItem.ID,
-		targetItem.Status,
 	)
 	if err != nil {
 		log.Print(err)
@@ -2059,7 +2058,7 @@ func postBump(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	_, err = tx.Exec("UPDATE `users` SET `last_bump`=? WHERE id=?",
+	_, err = tx.Exec("UPDATE `users` SET `last_bump`=? WHERE `id` = ?",
 		now,
 		seller.ID,
 	)
