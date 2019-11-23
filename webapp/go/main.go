@@ -1165,7 +1165,7 @@ func postItemEdit(w http.ResponseWriter, r *http.Request) {
 		price,
 		now,
 		itemID,
-		targetItem.Status,
+		ItemStatusOnSale,
 	)
 	if err != nil {
 		log.Print(err)
@@ -1342,7 +1342,7 @@ func postBuy(w http.ResponseWriter, r *http.Request) {
 		ItemStatusTrading,
 		time.Now(),
 		targetItem.ID,
-		targetItem.Status,
+		ItemStatusOnSale,
 		targetItem.Price,
 	)
 	if err != nil {
