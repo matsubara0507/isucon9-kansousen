@@ -4,6 +4,7 @@ import (
 	crand "crypto/rand"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"html/template"
 	"io/ioutil"
@@ -60,9 +61,11 @@ const (
 )
 
 var (
-	templates *template.Template
-	dbx       *sqlx.DB
-	store     sessions.Store
+	templates   *template.Template
+	dbx         *sqlx.DB
+	store       sessions.Store
+	categoryMap map[int]*Category
+	categories  []Category
 )
 
 type Config struct {
@@ -161,13 +164,6 @@ type Shipping struct {
 	ImgBinary             []byte    `json:"-" db:"img_binary"`
 	CreatedAt             time.Time `json:"-" db:"created_at"`
 	UpdatedAt             time.Time `json:"-" db:"updated_at"`
-}
-
-type Category struct {
-	ID                 int    `json:"id" db:"id"`
-	ParentID           int    `json:"parent_id" db:"parent_id"`
-	CategoryName       string `json:"category_name" db:"category_name"`
-	ParentCategoryName string `json:"parent_category_name,omitempty" db:"-"`
 }
 
 type reqInitialize struct {
@@ -321,6 +317,8 @@ func main() {
 
 	mux := goji.NewMux()
 
+	categoryMap, categories = initCategories()
+
 	// API
 	mux.HandleFunc(pat.Post("/initialize"), postInitialize)
 	mux.HandleFunc(pat.Get("/new_items.json"), getNewItems)
@@ -408,15 +406,11 @@ func getUserSimpleByID(q sqlx.Queryer, userID int64) (userSimple UserSimple, err
 }
 
 func getCategoryByID(q sqlx.Queryer, categoryID int) (category Category, err error) {
-	err = sqlx.Get(q, &category, "SELECT * FROM `categories` WHERE `id` = ?", categoryID)
-	if category.ParentID != 0 {
-		parentCategory, err := getCategoryByID(q, category.ParentID)
-		if err != nil {
-			return category, err
-		}
-		category.ParentCategoryName = parentCategory.CategoryName
+	v, ok := categoryMap[categoryID]
+	if ok {
+		return *v, nil
 	}
-	return category, err
+	return category, errors.New("category not found")
 }
 
 func getConfigByName(name string) (string, error) {
@@ -612,12 +606,11 @@ func getNewCategoryItems(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var categoryIDs []int
-	err = dbx.Select(&categoryIDs, "SELECT id FROM `categories` WHERE parent_id=?", rootCategory.ID)
-	if err != nil {
-		log.Print(err)
-		outputErrorMsg(w, http.StatusInternalServerError, "db error")
-		return
+	categoryIDs := make([]int, 0)
+	for _, v := range categories {
+		if v.ParentID == rootCategory.ID {
+			categoryIDs = append(categoryIDs, v.ID)
+		}
 	}
 
 	query := r.URL.Query()
@@ -2151,15 +2144,6 @@ func getSettings(w http.ResponseWriter, r *http.Request) {
 	}
 
 	ress.PaymentServiceURL = getPaymentServiceURL()
-
-	categories := []Category{}
-
-	err := dbx.Select(&categories, "SELECT * FROM `categories`")
-	if err != nil {
-		log.Print(err)
-		outputErrorMsg(w, http.StatusInternalServerError, "db error")
-		return
-	}
 	ress.Categories = categories
 
 	w.Header().Set("Content-Type", "application/json;charset=utf-8")
