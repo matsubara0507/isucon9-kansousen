@@ -2040,6 +2040,7 @@ func postBump(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	now = time.Unix(now.Unix(), 0) // to not reload by db
 	targetItem.CreatedAt = now
 	targetItem.UpdatedAt = now
 	_, err = dbx.Exec("UPDATE `items` SET `created_at`=?, `updated_at`=? WHERE `id` = ?",
