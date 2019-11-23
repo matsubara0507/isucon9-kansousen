@@ -66,6 +66,7 @@ var (
 	store       sessions.Store
 	categoryMap map[int]*Category
 	categories  []Category
+	repository  *Repository
 )
 
 type Config struct {
@@ -319,6 +320,12 @@ func main() {
 
 	categoryMap, categories = initCategories()
 
+	memcachedHost := os.Getenv("MEMCACHED_HOST")
+	if memcachedHost == "" {
+		memcachedHost = "127.0.0.1:11211"
+	}
+	repository = initRepositories(dbx, memcachedHost)
+
 	// API
 	mux.HandleFunc(pat.Post("/initialize"), postInitialize)
 	mux.HandleFunc(pat.Get("/new_items.json"), getNewItems)
@@ -381,16 +388,18 @@ func getUser(r *http.Request) (user User, errCode int, errMsg string) {
 		return user, http.StatusNotFound, "no session"
 	}
 
-	err := dbx.Get(&user, "SELECT * FROM `users` WHERE `id` = ?", userID)
-	if err == sql.ErrNoRows {
-		return user, http.StatusNotFound, "user not found"
-	}
-	if err != nil {
-		log.Print(err)
-		return user, http.StatusInternalServerError, "db error"
+	uid, ok := userID.(int64)
+	if !ok {
+		return user, http.StatusInternalServerError, "can not convert user id by session"
 	}
 
-	return user, http.StatusOK, ""
+	u, err := repository.getUser(uid)
+	if err != nil {
+		log.Print(err)
+		return user, http.StatusNotFound, "user not found"
+	}
+
+	return *u, http.StatusOK, ""
 }
 
 func getUserSimpleByID(ctx *map[int64]UserSimple, q sqlx.Queryer, userID int64) (userSimple UserSimple, err error) {
@@ -400,11 +409,12 @@ func getUserSimpleByID(ctx *map[int64]UserSimple, q sqlx.Queryer, userID int64) 
 		}
 	}
 
-	user := User{}
-	err = sqlx.Get(q, &user, "SELECT * FROM `users` WHERE `id` = ?", userID)
+	user, err := repository.getUser(userID)
 	if err != nil {
+		log.Print(err)
 		return userSimple, err
 	}
+
 	userSimple.ID = user.ID
 	userSimple.AccountName = user.AccountName
 	userSimple.NumSellItems = user.NumSellItems
@@ -1317,16 +1327,11 @@ func postBuy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	seller := User{}
-	err = dbx.Get(&seller, "SELECT * FROM `users` WHERE `id` = ?", targetItem.SellerID)
-	if err == sql.ErrNoRows {
-		outputErrorMsg(w, http.StatusNotFound, "seller not found")
-		return
-	}
+	seller, err := repository.getUser(targetItem.SellerID)
 	if err != nil {
 		log.Print(err)
 
-		outputErrorMsg(w, http.StatusInternalServerError, "db error")
+		outputErrorMsg(w, http.StatusNotFound, "seller not found")
 		return
 	}
 
@@ -1950,15 +1955,11 @@ func postSell(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	seller := User{}
-	err = dbx.Get(&seller, "SELECT * FROM `users` WHERE `id` = ?", user.ID)
-	if err == sql.ErrNoRows {
-		outputErrorMsg(w, http.StatusNotFound, "user not found")
-		return
-	}
+	seller, err := repository.getUser(user.ID)
 	if err != nil {
 		log.Print(err)
-		outputErrorMsg(w, http.StatusInternalServerError, "db error")
+
+		outputErrorMsg(w, http.StatusNotFound, "seller not found")
 		return
 	}
 
@@ -2000,6 +2001,10 @@ func postSell(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	tx.Commit()
+
+	seller.NumSellItems += 1
+	seller.LastBump = time.Unix(now.Unix(), 0)
+	_ = repository.setUser(seller)
 
 	w.Header().Set("Content-Type", "application/json;charset=utf-8")
 	json.NewEncoder(w).Encode(resSell{ID: itemID})
@@ -2052,15 +2057,11 @@ func postBump(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	seller := User{}
-	err = dbx.Get(&seller, "SELECT * FROM `users` WHERE `id` = ?", user.ID)
-	if err == sql.ErrNoRows {
-		outputErrorMsg(w, http.StatusNotFound, "user not found")
-		return
-	}
+	seller, err := repository.getUser(user.ID)
 	if err != nil {
 		log.Print(err)
-		outputErrorMsg(w, http.StatusInternalServerError, "db error")
+
+		outputErrorMsg(w, http.StatusNotFound, "seller not found")
 		return
 	}
 
@@ -2085,7 +2086,7 @@ func postBump(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	_, err = dbx.Exec("UPDATE `users` SET `last_bump`=? WHERE `id` = ?",
+	_, err = dbx.Exec("UPDATE `users` SET `last_bump` = ? WHERE `id` = ?",
 		now,
 		seller.ID,
 	)
@@ -2094,6 +2095,9 @@ func postBump(w http.ResponseWriter, r *http.Request) {
 		outputErrorMsg(w, http.StatusInternalServerError, "db error")
 		return
 	}
+
+	seller.LastBump = now
+	_ = repository.setUser(seller)
 
 	w.Header().Set("Content-Type", "application/json;charset=utf-8")
 	json.NewEncoder(w).Encode(&resItemEdit{
