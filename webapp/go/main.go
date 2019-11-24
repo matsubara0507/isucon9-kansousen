@@ -1360,11 +1360,10 @@ func postBuy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	now := time.Now()
 	_, err = tx.Exec("UPDATE `items` SET `buyer_id` = ?, `status` = ?, `updated_at` = ? WHERE `id` = ? AND `status` = ? AND `price` = ?",
 		buyer.ID,
 		ItemStatusTrading,
-		now,
+		time.Now(),
 		targetItem.ID,
 		ItemStatusOnSale,
 		targetItem.Price,
@@ -1376,6 +1375,7 @@ func postBuy(w http.ResponseWriter, r *http.Request) {
 		tx.Rollback()
 		return
 	}
+	_ = repository.expireItem(targetItem.ID)
 	tx.Commit()
 
 	rollback := func() {
@@ -1396,6 +1396,7 @@ func postBuy(w http.ResponseWriter, r *http.Request) {
 			tx.Rollback()
 			return
 		}
+		_ = repository.expireItem(targetItem.ID)
 		tx.Commit()
 	}
 
@@ -1464,11 +1465,6 @@ func postBuy(w http.ResponseWriter, r *http.Request) {
 		rollback()
 		return
 	}
-
-	targetItem.BuyerID = buyer.ID
-	targetItem.Status = ItemStatusTrading
-	targetItem.UpdatedAt = now
-	_ = repository.setItem(targetItem)
 
 	w.Header().Set("Content-Type", "application/json;charset=utf-8")
 	json.NewEncoder(w).Encode(resBuy{TransactionEvidenceID: transactionEvidenceID})

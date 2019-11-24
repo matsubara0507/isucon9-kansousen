@@ -61,6 +61,10 @@ func (r *Repository) getUser(idx int64) (*User, error) {
 	return &user, nil
 }
 
+func (r *Repository) expireUser(idx int64) error {
+	return r.cache.Delete(fmt.Sprintf("user_%d", idx))
+}
+
 func (r *Repository) setItem(item *Item) error {
 	v, err := json.Marshal(item)
 	if err != nil {
@@ -93,4 +97,8 @@ func (r *Repository) getItem(idx int64) (*Item, error) {
 		log.Print(err)
 	}
 	return &item, nil
+}
+
+func (r *Repository) expireItem(idx int64) error {
+	return r.cache.Delete(fmt.Sprintf("item_%d", idx))
 }
