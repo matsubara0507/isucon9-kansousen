@@ -36,27 +36,27 @@ func (r *Repository) setUser(u *User) error {
 	return r.cache.Set(fmt.Sprintf("user_%d", u.ID), v, onecache.EXPIRES_DEFAULT)
 }
 
-func (r *Repository) getUser(idx int64) (u *User, err error) {
-	key := fmt.Sprintf("user_%d", idx)
-	if r.cache.Has(key) {
-		v, err := r.cache.Get(key)
-		if err != nil {
-			return nil, err
-		}
-		err = json.Unmarshal(v, u)
-		return u, err
-	}
-
+func (r *Repository) getUser(idx int64) (*User, error) {
 	var user User
+	key := fmt.Sprintf("user_%d", idx)
+
+	v, err := r.cache.Get(key)
+	if err == nil {
+		err = json.Unmarshal(v, &user)
+		if err == nil {
+			return &user, nil
+		}
+	}
+	log.Print(err)
+
 	err = r.dbx.Get(&user, "SELECT * FROM `users` WHERE `id` = ?", idx)
 	if err != nil {
-		return
+		return nil, err
 	}
 
 	err = r.setUser(&user)
 	if err != nil {
 		log.Print(err)
 	}
-
 	return &user, nil
 }
