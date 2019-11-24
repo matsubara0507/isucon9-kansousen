@@ -393,7 +393,13 @@ func getUser(r *http.Request) (user User, errCode int, errMsg string) {
 	return user, http.StatusOK, ""
 }
 
-func getUserSimpleByID(q sqlx.Queryer, userID int64) (userSimple UserSimple, err error) {
+func getUserSimpleByID(ctx *map[int64]UserSimple, q sqlx.Queryer, userID int64) (userSimple UserSimple, err error) {
+	if ctx != nil {
+		if u, ok := (*ctx)[userID]; ok {
+			return u, nil
+		}
+	}
+
 	user := User{}
 	err = sqlx.Get(q, &user, "SELECT * FROM `users` WHERE `id` = ?", userID)
 	if err != nil {
@@ -402,6 +408,11 @@ func getUserSimpleByID(q sqlx.Queryer, userID int64) (userSimple UserSimple, err
 	userSimple.ID = user.ID
 	userSimple.AccountName = user.AccountName
 	userSimple.NumSellItems = user.NumSellItems
+
+	if ctx != nil {
+		(*ctx)[userID] = userSimple
+	}
+
 	return userSimple, err
 }
 
@@ -551,9 +562,11 @@ func getNewItems(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	userMap := map[int64]UserSimple{}
+
 	itemSimples := []ItemSimple{}
 	for _, item := range items {
-		seller, err := getUserSimpleByID(dbx, item.SellerID)
+		seller, err := getUserSimpleByID(&userMap, dbx, item.SellerID)
 		if err != nil {
 			outputErrorMsg(w, http.StatusNotFound, "seller not found")
 			return
@@ -678,9 +691,11 @@ func getNewCategoryItems(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	userMap := map[int64]UserSimple{}
+
 	itemSimples := []ItemSimple{}
 	for _, item := range items {
-		seller, err := getUserSimpleByID(dbx, item.SellerID)
+		seller, err := getUserSimpleByID(&userMap, dbx, item.SellerID)
 		if err != nil {
 			outputErrorMsg(w, http.StatusNotFound, "seller not found")
 			return
@@ -730,7 +745,7 @@ func getUserItems(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	userSimple, err := getUserSimpleByID(dbx, userID)
+	userSimple, err := getUserSimpleByID(nil, dbx, userID)
 	if err != nil {
 		outputErrorMsg(w, http.StatusNotFound, "user not found")
 		return
@@ -892,9 +907,11 @@ func getTransactions(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	userMap := map[int64]UserSimple{}
+
 	itemDetails := []ItemDetail{}
 	for _, item := range items {
-		seller, err := getUserSimpleByID(dbx, item.SellerID)
+		seller, err := getUserSimpleByID(&userMap, dbx, item.SellerID)
 		if err != nil {
 			outputErrorMsg(w, http.StatusNotFound, "seller not found")
 			return
@@ -925,7 +942,7 @@ func getTransactions(w http.ResponseWriter, r *http.Request) {
 		}
 
 		if item.BuyerID != 0 {
-			buyer, err := getUserSimpleByID(dbx, item.BuyerID)
+			buyer, err := getUserSimpleByID(&userMap, dbx, item.BuyerID)
 			if err != nil {
 				outputErrorMsg(w, http.StatusNotFound, "buyer not found")
 				return
@@ -1020,7 +1037,7 @@ func getItem(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	seller, err := getUserSimpleByID(dbx, item.SellerID)
+	seller, err := getUserSimpleByID(nil, dbx, item.SellerID)
 	if err != nil {
 		outputErrorMsg(w, http.StatusNotFound, "seller not found")
 		return
@@ -1046,7 +1063,7 @@ func getItem(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if (user.ID == item.SellerID || user.ID == item.BuyerID) && item.BuyerID != 0 {
-		buyer, err := getUserSimpleByID(dbx, item.BuyerID)
+		buyer, err := getUserSimpleByID(nil, dbx, item.BuyerID)
 		if err != nil {
 			outputErrorMsg(w, http.StatusNotFound, "buyer not found")
 			return
