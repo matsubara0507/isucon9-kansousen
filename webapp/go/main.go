@@ -1380,9 +1380,8 @@ func postBuy(w http.ResponseWriter, r *http.Request) {
 
 	rollback := func() {
 		tx := dbx.MustBegin()
-		_, err := tx.Exec("UPDATE `items` SET `buyer_id` = 0, `status` = ?, `updated_at` = ? WHERE `id` = ?",
+		_, err := tx.Exec("UPDATE `items` SET `buyer_id` = 0, `status` = ? WHERE `id` = ?",
 			ItemStatusOnSale,
-			targetItem.UpdatedAt,
 			targetItem.ID,
 		)
 		if err != nil {

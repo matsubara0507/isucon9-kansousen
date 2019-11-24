@@ -85,7 +85,7 @@ func (r *Repository) getItem(idx int64) (*Item, error) {
 			return &item, nil
 		}
 	}
-	log.Print(err)
+	log.Printf("%s: %v", key, err)
 
 	err = r.dbx.Get(&item, "SELECT * FROM `items` WHERE `id` = ?", idx)
 	if err != nil {
