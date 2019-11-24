@@ -907,6 +907,51 @@ func getTransactions(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	itemIDs := make([]int64, 0)
+	for _, item := range items {
+		itemIDs = append(itemIDs, item.ID)
+	}
+
+	transactionEvidences := make([]TransactionEvidence, 0)
+	s, args, err := sqlx.In("SELECT * FROM `transaction_evidences` WHERE `item_id` IN (?)", itemIDs)
+	if err != nil {
+		log.Print(err)
+		outputErrorMsg(w, http.StatusInternalServerError, "db error")
+		return
+	}
+	err = dbx.Select(&transactionEvidences, s, args...)
+	if err != nil {
+		log.Print(err)
+		outputErrorMsg(w, http.StatusInternalServerError, "db error")
+		return
+	}
+
+	transactionEvidenceMap := make(map[int64]*TransactionEvidence, len(transactionEvidences))
+	transactionEvddenceIDs := make([]int64, len(transactionEvidences))
+	for _, te := range transactionEvidences {
+		transactionEvidenceMap[te.ItemID] = &te
+		transactionEvddenceIDs = append(transactionEvddenceIDs, te.ID)
+	}
+
+	shippings := make([]Shipping, 0)
+	s, args, err = sqlx.In("SELECT * FROM `shippings` WHERE `transaction_evidence_id` IN (?)", transactionEvddenceIDs)
+	if err != nil {
+		log.Print(err)
+		outputErrorMsg(w, http.StatusInternalServerError, "db error")
+		return
+	}
+	err = dbx.Select(&shippings, s, args...)
+	if err != nil {
+		log.Print(err)
+		outputErrorMsg(w, http.StatusInternalServerError, "db error")
+		return
+	}
+
+	shippingMap := make(map[int64]*Shipping)
+	for _, shipping := range shippings {
+		shippingMap[shipping.TransactionEvidenceID] = &shipping
+	}
+
 	userMap := map[int64]UserSimple{}
 
 	itemDetails := []ItemDetail{}
@@ -951,39 +996,29 @@ func getTransactions(w http.ResponseWriter, r *http.Request) {
 			itemDetail.Buyer = &buyer
 		}
 
-		transactionEvidence := TransactionEvidence{}
-		err = dbx.Get(&transactionEvidence, "SELECT * FROM `transaction_evidences` WHERE `item_id` = ?", item.ID)
-		if err != nil && err != sql.ErrNoRows {
-			// It's able to ignore ErrNoRows
-			log.Print(err)
-			outputErrorMsg(w, http.StatusInternalServerError, "db error")
-			return
-		}
-
-		if transactionEvidence.ID > 0 {
-			shipping := Shipping{}
-			err = dbx.Get(&shipping, "SELECT * FROM `shippings` WHERE `transaction_evidence_id` = ?", transactionEvidence.ID)
-			if err == sql.ErrNoRows {
+		if transactionEvidence, ok := transactionEvidenceMap[item.ID]; ok {
+			shipping, ok := shippingMap[transactionEvidence.ID]
+			if !ok {
 				outputErrorMsg(w, http.StatusNotFound, "shipping not found")
 				return
 			}
-			if err != nil {
-				log.Print(err)
-				outputErrorMsg(w, http.StatusInternalServerError, "db error")
-				return
-			}
-			ssr, err := APIShipmentStatus(getShipmentServiceURL(), &APIShipmentStatusReq{
-				ReserveID: shipping.ReserveID,
-			})
-			if err != nil {
-				log.Print(err)
-				outputErrorMsg(w, http.StatusInternalServerError, "failed to request to shipment service")
-				return
+
+			shippingStatus := shipping.Status
+			if shippingStatus == ShippingsStatusShipping {
+				ssr, err := APIShipmentStatus(getShipmentServiceURL(), &APIShipmentStatusReq{
+					ReserveID: shipping.ReserveID,
+				})
+				if err != nil {
+					log.Print(err)
+					outputErrorMsg(w, http.StatusInternalServerError, "failed to request to shipment service")
+					return
+				}
+				shippingStatus = ssr.Status
 			}
 
 			itemDetail.TransactionEvidenceID = transactionEvidence.ID
 			itemDetail.TransactionEvidenceStatus = transactionEvidence.Status
-			itemDetail.ShippingStatus = ssr.Status
+			itemDetail.ShippingStatus = shippingStatus
 		}
 
 		itemDetails = append(itemDetails, itemDetail)
