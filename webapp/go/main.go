@@ -1066,15 +1066,10 @@ func getItem(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	item := Item{}
-	err = dbx.Get(&item, "SELECT * FROM `items` WHERE `id` = ?", itemID)
-	if err == sql.ErrNoRows {
-		outputErrorMsg(w, http.StatusNotFound, "item not found")
-		return
-	}
+	item, err := repository.getItem(itemID)
 	if err != nil {
 		log.Print(err)
-		outputErrorMsg(w, http.StatusInternalServerError, "db error")
+		outputErrorMsg(w, http.StatusNotFound, "item not found")
 		return
 	}
 
@@ -1179,16 +1174,10 @@ func postItemEdit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	targetItem := Item{}
-	err = dbx.Get(&targetItem, "SELECT * FROM `items` WHERE `id` = ?", itemID)
-	if err == sql.ErrNoRows {
-		outputErrorMsg(w, http.StatusNotFound, "item not found")
-		return
-	}
+	targetItem, err := repository.getItem(itemID)
 	if err != nil {
 		log.Print(err)
-
-		outputErrorMsg(w, http.StatusInternalServerError, "db error")
+		outputErrorMsg(w, http.StatusNotFound, "item not found")
 		return
 	}
 	if targetItem.SellerID != seller.ID {
@@ -1219,6 +1208,8 @@ func postItemEdit(w http.ResponseWriter, r *http.Request) {
 	}
 
 	tx.Commit()
+
+	_ = repository.setItem(targetItem)
 
 	w.Header().Set("Content-Type", "application/json;charset=utf-8")
 	json.NewEncoder(w).Encode(&resItemEdit{
@@ -1306,16 +1297,10 @@ func postBuy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	targetItem := Item{}
-	err = dbx.Get(&targetItem, "SELECT * FROM `items` WHERE `id` = ?", rb.ItemID)
-	if err == sql.ErrNoRows {
-		outputErrorMsg(w, http.StatusNotFound, "item not found")
-		return
-	}
+	targetItem, err := repository.getItem(rb.ItemID)
 	if err != nil {
 		log.Print(err)
-
-		outputErrorMsg(w, http.StatusInternalServerError, "db error")
+		outputErrorMsg(w, http.StatusNotFound, "item not found")
 		return
 	}
 
@@ -1375,10 +1360,11 @@ func postBuy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	now := time.Now()
 	_, err = tx.Exec("UPDATE `items` SET `buyer_id` = ?, `status` = ?, `updated_at` = ? WHERE `id` = ? AND `status` = ? AND `price` = ?",
 		buyer.ID,
 		ItemStatusTrading,
-		time.Now(),
+		now,
 		targetItem.ID,
 		ItemStatusOnSale,
 		targetItem.Price,
@@ -1479,6 +1465,11 @@ func postBuy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	targetItem.BuyerID = buyer.ID
+	targetItem.Status = ItemStatusTrading
+	targetItem.UpdatedAt = now
+	_ = repository.setItem(targetItem)
+
 	w.Header().Set("Content-Type", "application/json;charset=utf-8")
 	json.NewEncoder(w).Encode(resBuy{TransactionEvidenceID: transactionEvidenceID})
 }
@@ -1529,15 +1520,10 @@ func postShip(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	item := Item{}
-	err = dbx.Get(&item, "SELECT * FROM `items` WHERE `id` = ?", itemID)
-	if err == sql.ErrNoRows {
-		outputErrorMsg(w, http.StatusNotFound, "item not found")
-		return
-	}
+	item, err := repository.getItem(itemID)
 	if err != nil {
 		log.Print(err)
-		outputErrorMsg(w, http.StatusInternalServerError, "db error")
+		outputErrorMsg(w, http.StatusNotFound, "item not found")
 		return
 	}
 
@@ -1630,15 +1616,10 @@ func postShipDone(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	item := Item{}
-	err = dbx.Get(&item, "SELECT * FROM `items` WHERE `id` = ?", itemID)
-	if err == sql.ErrNoRows {
-		outputErrorMsg(w, http.StatusNotFound, "items not found")
-		return
-	}
+	item, err := repository.getItem(itemID)
 	if err != nil {
 		log.Print(err)
-		outputErrorMsg(w, http.StatusInternalServerError, "db error")
+		outputErrorMsg(w, http.StatusNotFound, "item not found")
 		return
 	}
 
@@ -1768,15 +1749,10 @@ func postComplete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	item := Item{}
-	err = dbx.Get(&item, "SELECT * FROM `items` WHERE `id` = ?", itemID)
-	if err == sql.ErrNoRows {
-		outputErrorMsg(w, http.StatusNotFound, "items not found")
-		return
-	}
+	item, err := repository.getItem(itemID)
 	if err != nil {
 		log.Print(err)
-		outputErrorMsg(w, http.StatusInternalServerError, "db error")
+		outputErrorMsg(w, http.StatusNotFound, "item not found")
 		return
 	}
 
@@ -1854,9 +1830,10 @@ func postComplete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	now := time.Now()
 	_, err = tx.Exec("UPDATE `items` SET `status` = ?, `updated_at` = ? WHERE `id` = ? AND `status` = ?",
 		ItemStatusSoldOut,
-		time.Now(),
+		now,
 		itemID,
 		item.Status,
 	)
@@ -1869,6 +1846,10 @@ func postComplete(w http.ResponseWriter, r *http.Request) {
 	}
 
 	tx.Commit()
+
+	item.Status = ItemStatusSoldOut
+	item.UpdatedAt = now
+	_ = repository.setItem(item)
 
 	w.Header().Set("Content-Type", "application/json;charset=utf-8")
 	json.NewEncoder(w).Encode(resBuy{TransactionEvidenceID: transactionEvidence.ID})
@@ -2042,15 +2023,10 @@ func postBump(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	targetItem := Item{}
-	err = dbx.Get(&targetItem, "SELECT * FROM `items` WHERE `id` = ?", itemID)
-	if err == sql.ErrNoRows {
-		outputErrorMsg(w, http.StatusNotFound, "item not found")
-		return
-	}
+	targetItem, err := repository.getItem(itemID)
 	if err != nil {
 		log.Print(err)
-		outputErrorMsg(w, http.StatusInternalServerError, "db error")
+		outputErrorMsg(w, http.StatusNotFound, "item not found")
 		return
 	}
 
@@ -2097,6 +2073,8 @@ func postBump(w http.ResponseWriter, r *http.Request) {
 		outputErrorMsg(w, http.StatusInternalServerError, "db error")
 		return
 	}
+
+	_ = repository.setItem(targetItem)
 
 	seller.LastBump = now
 	_ = repository.setUser(seller)

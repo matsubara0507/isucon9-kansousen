@@ -60,3 +60,37 @@ func (r *Repository) getUser(idx int64) (*User, error) {
 	}
 	return &user, nil
 }
+
+func (r *Repository) setItem(item *Item) error {
+	v, err := json.Marshal(item)
+	if err != nil {
+		return nil
+	}
+
+	return r.cache.Set(fmt.Sprintf("item_%d", item.ID), v, onecache.EXPIRES_DEFAULT)
+}
+
+func (r *Repository) getItem(idx int64) (*Item, error) {
+	var item Item
+	key := fmt.Sprintf("item_%d", idx)
+
+	v, err := r.cache.Get(key)
+	if err == nil {
+		err = json.Unmarshal(v, &item)
+		if err == nil {
+			return &item, nil
+		}
+	}
+	log.Print(err)
+
+	err = r.dbx.Get(&item, "SELECT * FROM `items` WHERE `id` = ?", idx)
+	if err != nil {
+		return nil, err
+	}
+
+	err = r.setItem(&item)
+	if err != nil {
+		log.Print(err)
+	}
+	return &item, nil
+}
