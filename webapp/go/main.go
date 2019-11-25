@@ -933,23 +933,24 @@ func getTransactions(w http.ResponseWriter, r *http.Request) {
 		transactionEvddenceIDs = append(transactionEvddenceIDs, te.ID)
 	}
 
-	shippings := make([]Shipping, 0)
-	s, args, err = sqlx.In("SELECT * FROM `shippings` WHERE `transaction_evidence_id` IN (?)", transactionEvddenceIDs)
-	if err != nil {
-		log.Print(err)
-		outputErrorMsg(w, http.StatusInternalServerError, "db error")
-		return
-	}
-	err = dbx.Select(&shippings, s, args...)
-	if err != nil {
-		log.Print(err)
-		outputErrorMsg(w, http.StatusInternalServerError, "db error")
-		return
-	}
-
 	shippingMap := make(map[int64]*Shipping)
-	for _, shipping := range shippings {
-		shippingMap[shipping.TransactionEvidenceID] = &shipping
+	if len(transactionEvddenceIDs) != 0 {
+		shippings := make([]Shipping, 0)
+		s, args, err = sqlx.In("SELECT * FROM `shippings` WHERE `transaction_evidence_id` IN (?)", transactionEvddenceIDs)
+		if err != nil {
+			log.Print(err)
+			outputErrorMsg(w, http.StatusInternalServerError, "db error")
+			return
+		}
+		err = dbx.Select(&shippings, s, args...)
+		if err != nil {
+			log.Print(err)
+			outputErrorMsg(w, http.StatusInternalServerError, "db error")
+			return
+		}
+		for _, shipping := range shippings {
+			shippingMap[shipping.TransactionEvidenceID] = &shipping
+		}
 	}
 
 	userMap := map[int64]UserSimple{}
