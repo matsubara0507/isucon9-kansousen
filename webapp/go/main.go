@@ -1604,9 +1604,7 @@ func postShipDone(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	tx := dbx.MustBegin()
-
-	_, err = tx.Exec("UPDATE `shippings` SET `status` = ?, `updated_at` = ? WHERE `transaction_evidence_id` = ? AND `status` = ?",
+	_, err = dbx.Exec("UPDATE `shippings` SET `status` = ?, `updated_at` = ? WHERE `transaction_evidence_id` = ? AND `status` = ?",
 		ssr.Status,
 		time.Now(),
 		shipping.TransactionEvidenceID,
@@ -1616,25 +1614,8 @@ func postShipDone(w http.ResponseWriter, r *http.Request) {
 		log.Print(err)
 
 		outputErrorMsg(w, http.StatusInternalServerError, "db error")
-		tx.Rollback()
 		return
 	}
-
-	_, err = tx.Exec("UPDATE `transaction_evidences` SET `status` = ?, `updated_at` = ? WHERE `id` = ? AND `status` = ?",
-		TransactionEvidenceStatusWaitDone,
-		time.Now(),
-		shipping.TransactionEvidenceID,
-		TransactionEvidenceStatusWaitShipping,
-	)
-	if err != nil {
-		log.Print(err)
-
-		outputErrorMsg(w, http.StatusInternalServerError, "db error")
-		tx.Rollback()
-		return
-	}
-
-	tx.Commit()
 
 	w.Header().Set("Content-Type", "application/json;charset=utf-8")
 	json.NewEncoder(w).Encode(resBuy{TransactionEvidenceID: shipping.TransactionEvidenceID})
@@ -1719,20 +1700,6 @@ func postComplete(w http.ResponseWriter, r *http.Request) {
 		time.Now(),
 		shipping.TransactionEvidenceID,
 		shipping.Status,
-	)
-	if err != nil {
-		log.Print(err)
-
-		outputErrorMsg(w, http.StatusInternalServerError, "db error")
-		tx.Rollback()
-		return
-	}
-
-	_, err = tx.Exec("UPDATE `transaction_evidences` SET `status` = ?, `updated_at` = ? WHERE `id` = ? AND `status` = ?",
-		TransactionEvidenceStatusDone,
-		time.Now(),
-		shipping.TransactionEvidenceID,
-		TransactionEvidenceStatusWaitDone,
 	)
 	if err != nil {
 		log.Print(err)
