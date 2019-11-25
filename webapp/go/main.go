@@ -912,45 +912,23 @@ func getTransactions(w http.ResponseWriter, r *http.Request) {
 		itemIDs = append(itemIDs, item.ID)
 	}
 
-	transactionEvidences := make([]TransactionEvidence, 0)
-	s, args, err := sqlx.In("SELECT * FROM `transaction_evidences` WHERE `item_id` IN (?)", itemIDs)
+	shippings := make([]Shipping, 0)
+	inQuery, inArgs, err := sqlx.In("SELECT `transaction_evidence_id`, `status`, `item_id` FROM `shippings` WHERE `item_id` IN (?)", itemIDs)
 	if err != nil {
 		log.Print(err)
 		outputErrorMsg(w, http.StatusInternalServerError, "db error")
 		return
 	}
-	err = dbx.Select(&transactionEvidences, s, args...)
+	err = dbx.Select(&shippings, inQuery, inArgs...)
 	if err != nil {
 		log.Print(err)
 		outputErrorMsg(w, http.StatusInternalServerError, "db error")
 		return
-	}
-
-	transactionEvidenceMap := make(map[int64]*TransactionEvidence, len(transactionEvidences))
-	transactionEvddenceIDs := make([]int64, len(transactionEvidences))
-	for _, te := range transactionEvidences {
-		transactionEvidenceMap[te.ItemID] = &te
-		transactionEvddenceIDs = append(transactionEvddenceIDs, te.ID)
 	}
 
 	shippingMap := make(map[int64]*Shipping)
-	if len(transactionEvddenceIDs) != 0 {
-		shippings := make([]Shipping, 0)
-		s, args, err = sqlx.In("SELECT * FROM `shippings` WHERE `transaction_evidence_id` IN (?)", transactionEvddenceIDs)
-		if err != nil {
-			log.Print(err)
-			outputErrorMsg(w, http.StatusInternalServerError, "db error")
-			return
-		}
-		err = dbx.Select(&shippings, s, args...)
-		if err != nil {
-			log.Print(err)
-			outputErrorMsg(w, http.StatusInternalServerError, "db error")
-			return
-		}
-		for _, shipping := range shippings {
-			shippingMap[shipping.TransactionEvidenceID] = &shipping
-		}
+	for _, shipping := range shippings {
+		shippingMap[shipping.ItemID] = &shipping
 	}
 
 	userMap := map[int64]UserSimple{}
@@ -997,13 +975,7 @@ func getTransactions(w http.ResponseWriter, r *http.Request) {
 			itemDetail.Buyer = &buyer
 		}
 
-		if transactionEvidence, ok := transactionEvidenceMap[item.ID]; ok {
-			shipping, ok := shippingMap[transactionEvidence.ID]
-			if !ok {
-				outputErrorMsg(w, http.StatusNotFound, "shipping not found")
-				return
-			}
-
+		if shipping, ok := shippingMap[item.ID]; ok {
 			shippingStatus := shipping.Status
 			if shippingStatus == ShippingsStatusShipping {
 				ssr, err := APIShipmentStatus(getShipmentServiceURL(), &APIShipmentStatusReq{
@@ -1017,8 +989,8 @@ func getTransactions(w http.ResponseWriter, r *http.Request) {
 				shippingStatus = ssr.Status
 			}
 
-			itemDetail.TransactionEvidenceID = transactionEvidence.ID
-			itemDetail.TransactionEvidenceStatus = transactionEvidence.Status
+			itemDetail.TransactionEvidenceID = shipping.TransactionEvidenceID
+			itemDetail.TransactionEvidenceStatus = transactionEvidenceStatusBy(item.Status, shippingStatus)
 			itemDetail.ShippingStatus = shippingStatus
 		}
 
@@ -1107,8 +1079,8 @@ func getItem(w http.ResponseWriter, r *http.Request) {
 		itemDetail.BuyerID = item.BuyerID
 		itemDetail.Buyer = &buyer
 
-		transactionEvidence := TransactionEvidence{}
-		err = dbx.Get(&transactionEvidence, "SELECT * FROM `transaction_evidences` WHERE `item_id` = ?", item.ID)
+		shipping := Shipping{}
+		err = dbx.Get(&shipping, "SELECT * FROM `shippings` WHERE `item_id` = ?", itemID)
 		if err != nil && err != sql.ErrNoRows {
 			// It's able to ignore ErrNoRows
 			log.Print(err)
@@ -1116,21 +1088,9 @@ func getItem(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		if transactionEvidence.ID > 0 {
-			shipping := Shipping{}
-			err = dbx.Get(&shipping, "SELECT * FROM `shippings` WHERE `transaction_evidence_id` = ?", transactionEvidence.ID)
-			if err == sql.ErrNoRows {
-				outputErrorMsg(w, http.StatusNotFound, "shipping not found")
-				return
-			}
-			if err != nil {
-				log.Print(err)
-				outputErrorMsg(w, http.StatusInternalServerError, "db error")
-				return
-			}
-
-			itemDetail.TransactionEvidenceID = transactionEvidence.ID
-			itemDetail.TransactionEvidenceStatus = transactionEvidence.Status
+		if shipping.TransactionEvidenceID > 0 {
+			itemDetail.TransactionEvidenceID = shipping.TransactionEvidenceID
+			itemDetail.TransactionEvidenceStatus = transactionEvidenceStatusBy(item.Status, shipping.Status)
 			itemDetail.ShippingStatus = shipping.Status
 		}
 	}
@@ -1233,7 +1193,7 @@ func getQRCode(w http.ResponseWriter, r *http.Request) {
 	}
 
 	transactionEvidence := TransactionEvidence{}
-	err = dbx.Get(&transactionEvidence, "SELECT * FROM `transaction_evidences` WHERE `id` = ?", transactionEvidenceID)
+	err = dbx.Get(&transactionEvidence, "SELECT `id`, `seller_id` FROM `transaction_evidences` WHERE `id` = ?", transactionEvidenceID)
 	if err == sql.ErrNoRows {
 		outputErrorMsg(w, http.StatusNotFound, "transaction_evidences not found")
 		return
@@ -1250,7 +1210,7 @@ func getQRCode(w http.ResponseWriter, r *http.Request) {
 	}
 
 	shipping := Shipping{}
-	err = dbx.Get(&shipping, "SELECT * FROM `shippings` WHERE `transaction_evidence_id` = ?", transactionEvidence.ID)
+	err = dbx.Get(&shipping, "SELECT `status`, `img_binary` FROM `shippings` WHERE `transaction_evidence_id` = ?", transactionEvidence.ID)
 	if err == sql.ErrNoRows {
 		outputErrorMsg(w, http.StatusNotFound, "shippings not found")
 		return
@@ -1502,7 +1462,7 @@ func postShip(w http.ResponseWriter, r *http.Request) {
 	}
 
 	transactionEvidence := TransactionEvidence{}
-	err = dbx.Get(&transactionEvidence, "SELECT * FROM `transaction_evidences` WHERE `item_id` = ?", itemID)
+	err = dbx.Get(&transactionEvidence, "SELECT `id`, `seller_id`, `status` FROM `transaction_evidences` WHERE `item_id` = ?", itemID)
 	if err == sql.ErrNoRows {
 		outputErrorMsg(w, http.StatusNotFound, "transaction_evidences not found")
 		return
@@ -1541,7 +1501,7 @@ func postShip(w http.ResponseWriter, r *http.Request) {
 	}
 
 	shipping := Shipping{}
-	err = dbx.Get(&shipping, "SELECT * FROM `shippings` WHERE `transaction_evidence_id` = ?", transactionEvidence.ID)
+	err = dbx.Get(&shipping, "SELECT `reserve_id` FROM `shippings` WHERE `transaction_evidence_id` = ?", transactionEvidence.ID)
 	if err == sql.ErrNoRows {
 		outputErrorMsg(w, http.StatusNotFound, "shippings not found")
 		return
@@ -1607,7 +1567,7 @@ func postShipDone(w http.ResponseWriter, r *http.Request) {
 	}
 
 	transactionEvidence := TransactionEvidence{}
-	err = dbx.Get(&transactionEvidence, "SELECT * FROM `transaction_evidences` WHERE `item_id` = ?", itemID)
+	err = dbx.Get(&transactionEvidence, "SELECT `id`, `seller_id`, `status` FROM `transaction_evidences` WHERE `item_id` = ?", itemID)
 	if err == sql.ErrNoRows {
 		outputErrorMsg(w, http.StatusNotFound, "transaction_evidence not found")
 		return
@@ -1621,6 +1581,10 @@ func postShipDone(w http.ResponseWriter, r *http.Request) {
 
 	if transactionEvidence.SellerID != seller.ID {
 		outputErrorMsg(w, http.StatusForbidden, "権限がありません")
+		return
+	}
+	if transactionEvidence.Status != TransactionEvidenceStatusWaitShipping {
+		outputErrorMsg(w, http.StatusForbidden, "準備ができていません")
 		return
 	}
 
@@ -1641,24 +1605,8 @@ func postShipDone(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	err = dbx.Get(&transactionEvidence, "SELECT * FROM `transaction_evidences` WHERE `id` = ?", transactionEvidence.ID)
-	if err == sql.ErrNoRows {
-		outputErrorMsg(w, http.StatusNotFound, "transaction_evidences not found")
-		return
-	}
-	if err != nil {
-		log.Print(err)
-		outputErrorMsg(w, http.StatusInternalServerError, "db error")
-		return
-	}
-
-	if transactionEvidence.Status != TransactionEvidenceStatusWaitShipping {
-		outputErrorMsg(w, http.StatusForbidden, "準備ができていません")
-		return
-	}
-
 	shipping := Shipping{}
-	err = dbx.Get(&shipping, "SELECT * FROM `shippings` WHERE `transaction_evidence_id` = ?", transactionEvidence.ID)
+	err = dbx.Get(&shipping, "SELECT `reserve_id`, `status` FROM `shippings` WHERE `transaction_evidence_id` = ?", transactionEvidence.ID)
 	if err == sql.ErrNoRows {
 		outputErrorMsg(w, http.StatusNotFound, "shippings not found")
 		return
@@ -1745,7 +1693,7 @@ func postComplete(w http.ResponseWriter, r *http.Request) {
 	}
 
 	transactionEvidence := TransactionEvidence{}
-	err = dbx.Get(&transactionEvidence, "SELECT * FROM `transaction_evidences` WHERE `item_id` = ?", itemID)
+	err = dbx.Get(&transactionEvidence, "SELECT `id`, `buyer_id`, `status` FROM `transaction_evidences` WHERE `item_id` = ?", itemID)
 	if err == sql.ErrNoRows {
 		outputErrorMsg(w, http.StatusNotFound, "transaction_evidence not found")
 		return
@@ -1759,6 +1707,10 @@ func postComplete(w http.ResponseWriter, r *http.Request) {
 
 	if transactionEvidence.BuyerID != buyer.ID {
 		outputErrorMsg(w, http.StatusForbidden, "権限がありません")
+		return
+	}
+	if transactionEvidence.Status != TransactionEvidenceStatusWaitDone {
+		outputErrorMsg(w, http.StatusForbidden, "準備ができていません")
 		return
 	}
 
@@ -1779,24 +1731,8 @@ func postComplete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	err = dbx.Get(&transactionEvidence, "SELECT * FROM `transaction_evidences` WHERE `item_id` = ?", itemID)
-	if err == sql.ErrNoRows {
-		outputErrorMsg(w, http.StatusNotFound, "transaction_evidences not found")
-		return
-	}
-	if err != nil {
-		log.Print(err)
-		outputErrorMsg(w, http.StatusInternalServerError, "db error")
-		return
-	}
-
-	if transactionEvidence.Status != TransactionEvidenceStatusWaitDone {
-		outputErrorMsg(w, http.StatusForbidden, "準備ができていません")
-		return
-	}
-
 	shipping := Shipping{}
-	err = dbx.Get(&shipping, "SELECT * FROM `shippings` WHERE `transaction_evidence_id` = ?", transactionEvidence.ID)
+	err = dbx.Get(&shipping, "SELECT `reserve_id`, `status` FROM `shippings` WHERE `transaction_evidence_id` = ?", transactionEvidence.ID)
 	if err != nil {
 		log.Print(err)
 		outputErrorMsg(w, http.StatusInternalServerError, "db error")
@@ -2271,4 +2207,13 @@ func outputErrorMsg(w http.ResponseWriter, status int, msg string) {
 
 func getImageURL(imageName string) string {
 	return fmt.Sprintf("/upload/%s", imageName)
+}
+
+func transactionEvidenceStatusBy(itemStatus, shippingStatus string) string {
+	if itemStatus == ItemStatusSoldOut {
+		return TransactionEvidenceStatusDone
+	} else if shippingStatus == ShippingsStatusShipping || shippingStatus == ShippingsStatusDone {
+		return TransactionEvidenceStatusWaitDone
+	}
+	return TransactionEvidenceStatusWaitShipping
 }
