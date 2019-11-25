@@ -913,7 +913,7 @@ func getTransactions(w http.ResponseWriter, r *http.Request) {
 	}
 
 	shippings := make([]Shipping, 0)
-	inQuery, inArgs, err := sqlx.In("SELECT `transaction_evidence_id`, `status`, `item_id` FROM `shippings` WHERE `item_id` IN (?)", itemIDs)
+	inQuery, inArgs, err := sqlx.In("SELECT `transaction_evidence_id`, `status`, `item_id`, `reserve_id` FROM `shippings` WHERE `item_id` IN (?)", itemIDs)
 	if err != nil {
 		log.Print(err)
 		outputErrorMsg(w, http.StatusInternalServerError, "db error")
