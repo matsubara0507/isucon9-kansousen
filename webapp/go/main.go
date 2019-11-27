@@ -464,7 +464,7 @@ func getUserSimpleByID(ctx *map[int64]UserSimple, q sqlx.Queryer, userID int64) 
 	}
 
 	user := User{}
-	err = sqlx.Get(q, &user, "SELECT * FROM `users` WHERE `id` = ?", userID)
+	err = sqlx.Get(q, &user, "SELECT `id`, `account_name`, `num_sell_items` FROM `users` WHERE `id` = ?", userID)
 	if err != nil {
 		return userSimple, err
 	}
@@ -818,11 +818,16 @@ func getUserItems(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	userSimple, err := getUserSimpleByID(nil, dbx, userID)
-	if err != nil {
-		outputErrorMsg(w, http.StatusNotFound, "user not found")
-		return
-	}
+	userCh := make(chan *UserSimple, 0)
+	go func() {
+		userSimple, err := getUserSimpleByID(nil, dbx, userID)
+		if err != nil {
+			log.Print(err)
+			userCh <- nil
+			return
+		}
+		userCh <- &userSimple
+	}()
 
 	query := r.URL.Query()
 	itemIDStr := query.Get("item_id")
@@ -849,11 +854,8 @@ func getUserItems(w http.ResponseWriter, r *http.Request) {
 	if itemID > 0 && createdAt > 0 {
 		// paging
 		err := dbx.Select(&items,
-			"SELECT * FROM `items` WHERE `seller_id` = ? AND `status` IN (?,?,?) AND (`created_at` < ?  OR (`created_at` <= ? AND `id` < ?)) ORDER BY `created_at` DESC, `id` DESC LIMIT ?",
-			userSimple.ID,
-			ItemStatusOnSale,
-			ItemStatusTrading,
-			ItemStatusSoldOut,
+			"SELECT * FROM `items` WHERE `seller_id` = ? AND (`created_at` < ?  OR (`created_at` <= ? AND `id` < ?)) ORDER BY `created_at` DESC, `id` DESC LIMIT ?",
+			userID,
 			time.Unix(createdAt, 0),
 			time.Unix(createdAt, 0),
 			itemID,
@@ -867,11 +869,8 @@ func getUserItems(w http.ResponseWriter, r *http.Request) {
 	} else {
 		// 1st page
 		err := dbx.Select(&items,
-			"SELECT * FROM `items` WHERE `seller_id` = ? AND `status` IN (?,?,?) ORDER BY `created_at` DESC, `id` DESC LIMIT ?",
-			userSimple.ID,
-			ItemStatusOnSale,
-			ItemStatusTrading,
-			ItemStatusSoldOut,
+			"SELECT * FROM `items` WHERE `seller_id` = ? ORDER BY `created_at` DESC, `id` DESC LIMIT ?",
+			userID,
 			ItemsPerPage+1,
 		)
 		if err != nil {
@@ -880,6 +879,13 @@ func getUserItems(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+
+	userSimpleRef := <-userCh
+	if userSimpleRef == nil {
+		outputErrorMsg(w, http.StatusNotFound, "user not found")
+		return
+	}
+	userSimple := *userSimpleRef
 
 	itemSimples := []ItemSimple{}
 	for _, item := range items {
