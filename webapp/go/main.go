@@ -1360,7 +1360,7 @@ func postBuy(w http.ResponseWriter, r *http.Request) {
 	}
 
 	targetItem := Item{}
-	err = dbx.Get(&targetItem, "SELECT `id`, `seller_id`, `buyer_id`, `status`, `name`, `price`, `category_id` FROM `items` WHERE `id` = ?", rb.ItemID)
+	err = dbx.Get(&targetItem, "SELECT `id`, `seller_id`, `buyer_id`, `status`, `name`, `price`, `category_id`, `updated_at` FROM `items` WHERE `id` = ?", rb.ItemID)
 	if err == sql.ErrNoRows {
 		outputErrorMsg(w, http.StatusNotFound, "item not found")
 		return
@@ -1385,7 +1385,7 @@ func postBuy(w http.ResponseWriter, r *http.Request) {
 	scrCh := make(chan *APIShipmentCreateRes, 0)
 	go func() {
 		users := make([]User, 0)
-		err = dbx.Get(&users, "SELECT `id`, `address`, `account_name` FROM `users` WHERE `id` IN (?, ?)", buyerID, targetItem.SellerID)
+		err = dbx.Select(&users, "SELECT `id`, `address`, `account_name` FROM `users` WHERE `id` IN (?, ?)", buyerID, targetItem.SellerID)
 		if err != nil || len(users) != 2 {
 			log.Print(users)
 			log.Print(err)
@@ -1899,7 +1899,7 @@ func postSell(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	user, errCode, errMsg := getUser(r)
+	userID, errCode, errMsg := getUserID(r)
 	if errMsg != "" {
 		outputErrorMsg(w, errCode, errMsg)
 		return
@@ -1931,22 +1931,8 @@ func postSell(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	seller := User{}
-	err = dbx.Get(&seller, "SELECT * FROM `users` WHERE `id` = ?", user.ID)
-	if err == sql.ErrNoRows {
-		outputErrorMsg(w, http.StatusNotFound, "user not found")
-		return
-	}
-	if err != nil {
-		log.Print(err)
-		outputErrorMsg(w, http.StatusInternalServerError, "db error")
-		return
-	}
-
-	tx := dbx.MustBegin()
-
-	result, err := tx.Exec("INSERT INTO `items` (`seller_id`, `status`, `name`, `price`, `description`,`image_name`,`category_id`) VALUES (?, ?, ?, ?, ?, ?, ?)",
-		seller.ID,
+	result, err := dbx.Exec("INSERT INTO `items` (`seller_id`, `status`, `name`, `price`, `description`,`image_name`,`category_id`) VALUES (?, ?, ?, ?, ?, ?, ?)",
+		userID,
 		ItemStatusOnSale,
 		name,
 		price,
@@ -1970,17 +1956,15 @@ func postSell(w http.ResponseWriter, r *http.Request) {
 	}
 
 	now := time.Now()
-	_, err = tx.Exec("UPDATE `users` SET `num_sell_items` = `num_sell_items` + 1, `last_bump` = ? WHERE `id` = ?",
+	_, err = dbx.Exec("UPDATE `users` SET `num_sell_items` = `num_sell_items` + 1, `last_bump` = ? WHERE `id` = ?",
 		now,
-		seller.ID,
+		userID,
 	)
 	if err != nil {
 		log.Print(err)
-
 		outputErrorMsg(w, http.StatusInternalServerError, "db error")
 		return
 	}
-	tx.Commit()
 
 	w.Header().Set("Content-Type", "application/json;charset=utf-8")
 	json.NewEncoder(w).Encode(resSell{ID: itemID})
