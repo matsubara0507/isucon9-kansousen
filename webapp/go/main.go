@@ -1134,8 +1134,17 @@ func getItem(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	seller, err := getUserSimpleByID(nil, dbx, item.SellerID)
+	userIDs := []int64{item.SellerID}
+	if item.BuyerID != 0 {
+		userIDs = append(userIDs, item.BuyerID)
+	}
+	userMap, err := getUserSimplesByIDs(dbx, userIDs)
 	if err != nil {
+		outputErrorMsg(w, http.StatusNotFound, "users not found")
+		return
+	}
+	seller, ok := userMap[item.SellerID]
+	if !ok {
 		outputErrorMsg(w, http.StatusNotFound, "seller not found")
 		return
 	}
@@ -1160,8 +1169,8 @@ func getItem(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if (user.ID == item.SellerID || user.ID == item.BuyerID) && item.BuyerID != 0 {
-		buyer, err := getUserSimpleByID(nil, dbx, item.BuyerID)
-		if err != nil {
+		buyer, ok := userMap[item.BuyerID]
+		if !ok {
 			outputErrorMsg(w, http.StatusNotFound, "buyer not found")
 			return
 		}
@@ -1169,7 +1178,7 @@ func getItem(w http.ResponseWriter, r *http.Request) {
 		itemDetail.Buyer = &buyer
 
 		shipping := Shipping{}
-		err = dbx.Get(&shipping, "SELECT * FROM `shippings` WHERE `item_id` = ?", itemID)
+		err = dbx.Get(&shipping, "SELECT `transaction_evidence_id`, `status` FROM `shippings` WHERE `item_id` = ?", itemID)
 		if err != nil && err != sql.ErrNoRows {
 			// It's able to ignore ErrNoRows
 			log.Print(err)
