@@ -393,6 +393,21 @@ func getUser(r *http.Request) (user User, errCode int, errMsg string) {
 	return user, http.StatusOK, ""
 }
 
+func getUserID(r *http.Request) (userID int64, errCode int, errMsg string) {
+	session := getSession(r)
+	idx, ok := session.Values["user_id"]
+	if !ok {
+		return userID, http.StatusNotFound, "no session"
+	}
+
+	userID, ok = idx.(int64)
+	if !ok {
+		return userID, http.StatusNotFound, "no session"
+	}
+
+	return userID, http.StatusOK, ""
+}
+
 func getUserSimplesByItems(q sqlx.Queryer, items *[]Item, userSimple UserSimple) (map[int64]UserSimple, error) {
 	userIDMap := make(map[int64]bool)
 	for _, item := range *items {
@@ -905,7 +920,7 @@ func getUserItems(w http.ResponseWriter, r *http.Request) {
 
 func getTransactions(w http.ResponseWriter, r *http.Request) {
 
-	user, errCode, errMsg := getUser(r)
+	userID, errCode, errMsg := getUserID(r)
 	if errMsg != "" {
 		outputErrorMsg(w, errCode, errMsg)
 		return
@@ -938,8 +953,8 @@ func getTransactions(w http.ResponseWriter, r *http.Request) {
 		// paging
 		err := dbx.Select(&items,
 			"SELECT * FROM `items` WHERE (`seller_id` = ? OR `buyer_id` = ?) AND (`created_at` < ?  OR (`created_at` <= ? AND `id` < ?)) ORDER BY `created_at` DESC, `id` DESC LIMIT ?",
-			user.ID,
-			user.ID,
+			userID,
+			userID,
 			time.Unix(createdAt, 0),
 			time.Unix(createdAt, 0),
 			itemID,
@@ -954,8 +969,8 @@ func getTransactions(w http.ResponseWriter, r *http.Request) {
 		// 1st page
 		err := dbx.Select(&items,
 			"SELECT * FROM `items` WHERE (`seller_id` = ? OR `buyer_id` = ?) ORDER BY `created_at` DESC, `id` DESC LIMIT ?",
-			user.ID,
-			user.ID,
+			userID,
+			userID,
 			TransactionsPerPage+1,
 		)
 		if err != nil {
@@ -989,7 +1004,7 @@ func getTransactions(w http.ResponseWriter, r *http.Request) {
 		shippingMap[shipping.ItemID] = &shipping
 	}
 
-	userMap, err := getUserSimplesByItems(dbx, &items, UserSimple{user.ID, user.AccountName, user.NumSellItems})
+	userMap, err := getUserSimplesByItems(dbx, &items, UserSimple{})
 	if err != nil {
 		log.Print(err)
 		outputErrorMsg(w, http.StatusNotFound, "users not found")
