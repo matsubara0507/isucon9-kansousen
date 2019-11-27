@@ -419,13 +419,13 @@ func getUserSimplesByItems(q sqlx.Queryer, items *[]Item, userSimple UserSimple)
 func getUserSimplesByIDs(q sqlx.Queryer, ids []int64) (map[int64]UserSimple, error) {
 	userSimpleMap := make(map[int64]UserSimple, 0)
 
-	inQuery, inArgs, err := sqlx.In("SELECT `id`, `account_name`, `num_sell_items` WHERE `id` IN (?)", ids)
+	inQuery, inArgs, err := sqlx.In("SELECT `id`, `account_name`, `num_sell_items` FROM `users` WHERE `id` IN (?)", ids)
 	if err != nil {
 		return userSimpleMap, err
 	}
 
 	users := make([]User, 0)
-	err = sqlx.Get(q, &users, inQuery, inArgs)
+	err = sqlx.Select(q, &users, inQuery, inArgs...)
 	if err != nil {
 		return userSimpleMap, err
 	}
@@ -619,8 +619,8 @@ func getNewItems(w http.ResponseWriter, r *http.Request) {
 
 	itemSimples := []ItemSimple{}
 	for _, item := range items {
-		seller, err := getUserSimpleByID(&userMap, dbx, item.SellerID)
-		if err != nil {
+		seller, ok := userMap[item.SellerID]
+		if !ok {
 			outputErrorMsg(w, http.StatusNotFound, "seller not found")
 			return
 		}
@@ -753,8 +753,8 @@ func getNewCategoryItems(w http.ResponseWriter, r *http.Request) {
 
 	itemSimples := []ItemSimple{}
 	for _, item := range items {
-		seller, err := getUserSimpleByID(&userMap, dbx, item.SellerID)
-		if err != nil {
+		seller, ok := userMap[item.SellerID]
+		if !ok {
 			outputErrorMsg(w, http.StatusNotFound, "seller not found")
 			return
 		}
@@ -998,8 +998,8 @@ func getTransactions(w http.ResponseWriter, r *http.Request) {
 
 	itemDetails := []ItemDetail{}
 	for _, item := range items {
-		seller, err := getUserSimpleByID(&userMap, dbx, item.SellerID)
-		if err != nil {
+		seller, ok := userMap[item.SellerID]
+		if !ok {
 			outputErrorMsg(w, http.StatusNotFound, "seller not found")
 			return
 		}
@@ -1029,8 +1029,8 @@ func getTransactions(w http.ResponseWriter, r *http.Request) {
 		}
 
 		if item.BuyerID != 0 {
-			buyer, err := getUserSimpleByID(&userMap, dbx, item.BuyerID)
-			if err != nil {
+			buyer, ok := userMap[item.BuyerID]
+			if !ok {
 				outputErrorMsg(w, http.StatusNotFound, "buyer not found")
 				return
 			}
