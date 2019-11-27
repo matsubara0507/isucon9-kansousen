@@ -410,7 +410,7 @@ func getUserSimplesByItems(q sqlx.Queryer, items *[]Item, userSimple UserSimple)
 	}
 
 	userSimpleMap, err := getUserSimplesByIDs(q, userIDs)
-	if err != nil && userSimple.ID != 0 {
+	if err == nil && userSimple.ID != 0 {
 		userSimpleMap[userSimple.ID] = userSimple
 	}
 	return userSimpleMap, err
