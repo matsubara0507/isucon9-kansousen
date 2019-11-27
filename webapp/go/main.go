@@ -2105,7 +2105,7 @@ func postLogin(w http.ResponseWriter, r *http.Request) {
 	}
 
 	u := User{}
-	err = dbx.Get(&u, "SELECT `id`, `hashed_password` FROM `users` WHERE `account_name` = ?", accountName)
+	err = dbx.Get(&u, "SELECT * FROM `users` WHERE `account_name` = ?", accountName)
 	if err == sql.ErrNoRows {
 		outputErrorMsg(w, http.StatusUnauthorized, "アカウント名かパスワードが間違えています")
 		return
