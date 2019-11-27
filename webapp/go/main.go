@@ -985,6 +985,17 @@ func getTransactions(w http.ResponseWriter, r *http.Request) {
 		itemIDs = append(itemIDs, item.ID)
 	}
 
+	userMapCh := make(chan *(map[int64]UserSimple), 0)
+	go func() {
+		userMap, err := getUserSimplesByItems(dbx, &items, UserSimple{})
+		if err != nil {
+			log.Print(err)
+			userMapCh <- nil
+			return
+		}
+		userMapCh <- &userMap
+	}()
+
 	shippings := make([]Shipping, 0)
 	inQuery, inArgs, err := sqlx.In("SELECT `transaction_evidence_id`, `status`, `item_id`, `reserve_id` FROM `shippings` WHERE `item_id` IN (?)", itemIDs)
 	if err != nil {
@@ -1004,12 +1015,12 @@ func getTransactions(w http.ResponseWriter, r *http.Request) {
 		shippingMap[shipping.ItemID] = &shipping
 	}
 
-	userMap, err := getUserSimplesByItems(dbx, &items, UserSimple{})
-	if err != nil {
-		log.Print(err)
+	userMapRef := <-userMapCh
+	if userMapRef == nil {
 		outputErrorMsg(w, http.StatusNotFound, "users not found")
 		return
 	}
+	userMap := *userMapRef
 
 	itemDetails := []ItemDetail{}
 	for _, item := range items {
