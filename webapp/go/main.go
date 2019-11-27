@@ -1226,14 +1226,14 @@ func postItemEdit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	seller, errCode, errMsg := getUser(r)
+	sellerID, errCode, errMsg := getUserID(r)
 	if errMsg != "" {
 		outputErrorMsg(w, errCode, errMsg)
 		return
 	}
 
 	targetItem := Item{}
-	err = dbx.Get(&targetItem, "SELECT * FROM `items` WHERE `id` = ?", itemID)
+	err = dbx.Get(&targetItem, "SELECT `id`, `seller_id`, `status` FROM `items` WHERE `id` = ?", itemID)
 	if err == sql.ErrNoRows {
 		outputErrorMsg(w, http.StatusNotFound, "item not found")
 		return
@@ -1244,7 +1244,7 @@ func postItemEdit(w http.ResponseWriter, r *http.Request) {
 		outputErrorMsg(w, http.StatusInternalServerError, "db error")
 		return
 	}
-	if targetItem.SellerID != seller.ID {
+	if targetItem.SellerID != sellerID {
 		outputErrorMsg(w, http.StatusForbidden, "自分の商品以外は編集できません")
 		return
 	}
@@ -1290,7 +1290,7 @@ func getQRCode(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	seller, errCode, errMsg := getUser(r)
+	sellerID, errCode, errMsg := getUserID(r)
 	if errMsg != "" {
 		outputErrorMsg(w, errCode, errMsg)
 		return
@@ -1308,7 +1308,7 @@ func getQRCode(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if transactionEvidence.SellerID != seller.ID {
+	if transactionEvidence.SellerID != sellerID {
 		outputErrorMsg(w, http.StatusForbidden, "権限がありません")
 		return
 	}
@@ -1994,14 +1994,14 @@ func postBump(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	user, errCode, errMsg := getUser(r)
+	userID, errCode, errMsg := getUserID(r)
 	if errMsg != "" {
 		outputErrorMsg(w, errCode, errMsg)
 		return
 	}
 
 	targetItem := Item{}
-	err = dbx.Get(&targetItem, "SELECT * FROM `items` WHERE `id` = ?", itemID)
+	err = dbx.Get(&targetItem, "SELECT `id`, `seller_id`, `price` FROM `items` WHERE `id` = ?", itemID)
 	if err == sql.ErrNoRows {
 		outputErrorMsg(w, http.StatusNotFound, "item not found")
 		return
@@ -2012,13 +2012,13 @@ func postBump(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if targetItem.SellerID != user.ID {
+	if targetItem.SellerID != userID {
 		outputErrorMsg(w, http.StatusForbidden, "自分の商品以外は編集できません")
 		return
 	}
 
 	seller := User{}
-	err = dbx.Get(&seller, "SELECT * FROM `users` WHERE `id` = ?", user.ID)
+	err = dbx.Get(&seller, "SELECT `id`, `last_bump` FROM `users` WHERE `id` = ?", userID)
 	if err == sql.ErrNoRows {
 		outputErrorMsg(w, http.StatusNotFound, "user not found")
 		return
@@ -2105,7 +2105,7 @@ func postLogin(w http.ResponseWriter, r *http.Request) {
 	}
 
 	u := User{}
-	err = dbx.Get(&u, "SELECT * FROM `users` WHERE `account_name` = ?", accountName)
+	err = dbx.Get(&u, "SELECT `id`, `hashed_password` FROM `users` WHERE `account_name` = ?", accountName)
 	if err == sql.ErrNoRows {
 		outputErrorMsg(w, http.StatusUnauthorized, "アカウント名かパスワードが間違えています")
 		return
