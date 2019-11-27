@@ -1353,14 +1353,14 @@ func postBuy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	buyer, errCode, errMsg := getUser(r)
+	buyerID, errCode, errMsg := getUserID(r)
 	if errMsg != "" {
 		outputErrorMsg(w, errCode, errMsg)
 		return
 	}
 
 	targetItem := Item{}
-	err = dbx.Get(&targetItem, "SELECT * FROM `items` WHERE `id` = ?", rb.ItemID)
+	err = dbx.Get(&targetItem, "SELECT `id`, `seller_id`, `buyer_id`, `status`, `name`, `price`, `category_id` FROM `items` WHERE `id` = ?", rb.ItemID)
 	if err == sql.ErrNoRows {
 		outputErrorMsg(w, http.StatusNotFound, "item not found")
 		return
@@ -1377,23 +1377,44 @@ func postBuy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if targetItem.SellerID == buyer.ID {
+	if targetItem.SellerID == buyerID {
 		outputErrorMsg(w, http.StatusForbidden, "自分の商品は買えません")
 		return
 	}
 
-	seller := User{}
-	err = dbx.Get(&seller, "SELECT * FROM `users` WHERE `id` = ?", targetItem.SellerID)
-	if err == sql.ErrNoRows {
-		outputErrorMsg(w, http.StatusNotFound, "seller not found")
-		return
-	}
-	if err != nil {
-		log.Print(err)
+	scrCh := make(chan *APIShipmentCreateRes, 0)
+	go func() {
+		users := make([]User, 0)
+		err = dbx.Get(&users, "SELECT `id`, `address`, `account_name` FROM `users` WHERE `id` IN (?, ?)", buyerID, targetItem.SellerID)
+		if err != nil || len(users) != 2 {
+			log.Print(users)
+			log.Print(err)
+			scrCh <- nil
+			return
+		}
 
-		outputErrorMsg(w, http.StatusInternalServerError, "db error")
-		return
-	}
+		var buyer, seller User
+		if users[0].ID == buyerID {
+			buyer = users[0]
+			seller = users[1]
+		} else {
+			buyer = users[1]
+			seller = users[0]
+		}
+
+		scr, err := APIShipmentCreate(getShipmentServiceURL(), &APIShipmentCreateReq{
+			ToAddress:   buyer.Address,
+			ToName:      buyer.AccountName,
+			FromAddress: seller.Address,
+			FromName:    seller.AccountName,
+		})
+		if err != nil {
+			log.Print(err)
+			scrCh <- nil
+			return
+		}
+		scrCh <- scr
+	}()
 
 	category, err := getCategoryByID(dbx, targetItem.CategoryID)
 	if err != nil {
@@ -1407,12 +1428,12 @@ func postBuy(w http.ResponseWriter, r *http.Request) {
 
 	result, err := tx.Exec("INSERT INTO `transaction_evidences` (`seller_id`, `buyer_id`, `status`, `item_id`, `item_name`, `item_price`, `item_description`,`item_category_id`,`item_root_category_id`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
 		targetItem.SellerID,
-		buyer.ID,
+		buyerID,
 		TransactionEvidenceStatusWaitShipping,
 		targetItem.ID,
 		targetItem.Name,
 		targetItem.Price,
-		targetItem.Description,
+		"",
 		category.ID,
 		category.ParentID,
 	)
@@ -1434,7 +1455,7 @@ func postBuy(w http.ResponseWriter, r *http.Request) {
 	}
 
 	_, err = tx.Exec("UPDATE `items` SET `buyer_id` = ?, `status` = ?, `updated_at` = ? WHERE `id` = ? AND `status` = ? AND `price` = ?",
-		buyer.ID,
+		buyerID,
 		ItemStatusTrading,
 		time.Now(),
 		targetItem.ID,
@@ -1471,16 +1492,10 @@ func postBuy(w http.ResponseWriter, r *http.Request) {
 		tx.Commit()
 	}
 
-	scr, err := APIShipmentCreate(getShipmentServiceURL(), &APIShipmentCreateReq{
-		ToAddress:   buyer.Address,
-		ToName:      buyer.AccountName,
-		FromAddress: seller.Address,
-		FromName:    seller.AccountName,
-	})
-	if err != nil {
-		log.Print(err)
+	scr := <-scrCh
+	if scr == nil {
 		outputErrorMsg(w, http.StatusInternalServerError, "failed to request to shipment service")
-
+		rollback()
 		return
 	}
 
@@ -1523,10 +1538,10 @@ func postBuy(w http.ResponseWriter, r *http.Request) {
 		targetItem.ID,
 		scr.ReserveID,
 		scr.ReserveTime,
-		buyer.Address,
-		buyer.AccountName,
-		seller.Address,
-		seller.AccountName,
+		"",
+		"",
+		"",
+		"",
 		"",
 	)
 	if err != nil {
